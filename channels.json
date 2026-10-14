@@ -1,0 +1,78 @@
+{
+  "max_parallel": 32,
+  "model_families": {
+    "GPT-*": "gpt",
+    "gpt-*": "gpt",
+    "o3*": "gpt",
+    "DeepSeek-*": "deepseek",
+    "deepseek*": "deepseek",
+    "*/deepseek*": "deepseek",
+    "Gemini-*": "gemini",
+    "gemini-*": "gemini",
+    "*/gemini*": "gemini",
+    "grok-*": "grok",
+    "*/grok*": "grok",
+    "glm*": "glm",
+    "*/glm*": "glm",
+    "claude-*": "claude",
+    "*/claude*": "claude",
+    "*opus*": "claude",
+    "*sonnet*": "claude",
+    "*haiku*": "claude",
+    "*fable*": "claude"
+  },
+  "channels": {
+    "shell": {
+      "adapter": "shell.sh",
+      "family": "none",
+      "desc": "test only: the prompt file is executed as a shell script"
+    },
+    "claude-p": {
+      "adapter": "claude_p.sh",
+      "model": "opus",
+      "models": [
+        "opus",
+        "sonnet"
+      ],
+      "desc": "Claude Code (`claude -p`) on the operator's own subscription or API key."
+    },
+    "codex": {
+      "adapter": "codex.sh",
+      "model": "gpt-5.6-sol",
+      "models": [
+        "gpt-5.6-sol",
+        "gpt-6-astra"
+      ],
+      "max_parallel": 2,
+      "desc": "OpenAI Codex CLI (`codex exec`)."
+    },
+    "cursor": {
+      "adapter": "cursor.sh",
+      "model": "claude-opus-5-thinking-max",
+      "models": [
+        "claude-opus-5-thinking-max",
+        "claude-fable-5-thinking-max"
+      ],
+      "desc": "Cursor agent CLI."
+    },
+    "grok": {
+      "adapter": "grok.sh",
+      "model": "grok-4.6",
+      "effort": "high",
+      "models": [
+        "grok-4.6",
+        "grok-4.5"
+      ],
+      "desc": "xAI Grok CLI (signed in with the CLI's own OAuth)."
+    },
+    "magpie": {
+      "adapter": "claude_magpie.sh",
+      "model": "deepseek/deepseek-chat",
+      "models": [
+        "deepseek/deepseek-chat"
+      ],
+      "max_parallel": 0,
+      "desc": "Claude Code through a local Magpie gateway (usemagpie.ai, 127.0.0.1:3425); model ids are Magpie's provider/model. Off until a provider is configured: set max_parallel."
+    }
+  }
+}

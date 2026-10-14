@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fleet top · 登录</title>
+<link rel="stylesheet" href="/style.css">
+<style>.box{max-width:420px;margin:12vh auto 0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px}
+.box h1{font:600 18px var(--mono);margin:0 0 6px}.box p{color:var(--mut);margin:0 0 16px}
+.go{display:inline-block;background:var(--fg);color:var(--bg);border:0;border-radius:6px;padding:8px 14px;font:600 14px var(--sans);cursor:pointer;text-decoration:none}
+#msg{margin-top:14px;min-height:1.4em}</style></head><body><div class="wrap">
+<div class="box">
+ <h1>fleet top</h1>
+ <p>只对配置的 GitHub 组织的 owner 开放。用 GitHub 登录，只读取你的公开身份；owner 名单由服务端核对。</p>
+ <a class="go" id="go" href="/login/start">用 GitHub 登录</a>
+ <div id="msg" class="stat"></div>
+</div></div>
+<script>
+const h = new URLSearchParams(location.hash.slice(1)), msg = document.getElementById("msg");
+if (h.get("oauth_error")) { msg.textContent = "GitHub 返回错误：" + h.get("oauth_error"); msg.className = "bad"; history.replaceState(null, "", location.pathname); }
+else if (h.get("oauth_token")) {
+  msg.textContent = "正在核对 owner 身份…";
+  const body = JSON.stringify({token: h.get("oauth_token"), state: h.get("state") || ""});
+  history.replaceState(null, "", location.pathname);
+  fetch("/auth/session", {method: "POST", headers: {"Content-Type": "application/json"}, body})
+    .then(async r => { const d = await r.json().catch(() => ({}));
+      if (r.ok) location.replace(sessionStorage.getItem("fw_next") || "/");
+      else { msg.textContent = d.error || ("登录失败（" + r.status + "）"); msg.className = "bad"; } })
+    .catch(e => { msg.textContent = "登录失败：" + e.message; msg.className = "bad"; });
+} else {
+  try { if (location.pathname !== "/") sessionStorage.setItem("fw_next", location.pathname); } catch (e) {}
+}
+</script></body></html>

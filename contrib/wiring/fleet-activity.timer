@@ -1,0 +1,13 @@
+[Unit]
+Description=Publish a fleet activity snapshot every 10s
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=10s
+# The consumer drops a fleet.json older than 30s, so the write has to be
+# punctual; the default 1min accuracy would make it stale on purpose.
+AccuracySec=1s
+Unit=fleet-activity.service
+
+[Install]
+WantedBy=timers.target

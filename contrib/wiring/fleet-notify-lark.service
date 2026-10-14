@@ -1,0 +1,13 @@
+[Unit]
+Description=Push fleet's increment to Lark
+
+[Service]
+Type=oneshot
+# notify-lark.py shells out to both `fleet` and `lark-cli`.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# --send is the whole point of the timer, and it refuses (exit 2, zero backend
+# calls) unless the config names a chat_id or user_id. install.sh will not
+# enable this timer until that config exists.
+ExecStart=/usr/bin/env python3 @CONTRIB@/notify-lark.py --send
+# No increment means no message and no output: quiet is the normal case.
+SuccessExitStatus=0

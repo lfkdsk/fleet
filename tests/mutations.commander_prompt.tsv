@@ -1,0 +1,20 @@
+# Local mutation manifest for the commander-prompt contract, kept out of the
+# shared tests/mutations.tsv on purpose: mutate.sh maps suite names to paths in
+# its own suite_path(), and the shared manifest is a batch other tasks are
+# running against. Run it with:
+#   FLEET_MUTATIONS=tests/mutations.commander_prompt.tsv tests/mutate.sh --check-only
+# and for the real teeth check, tests/commander_prompt_mutate.sh (which runs
+# the same seds against tests/commander_prompt_smoke.sh).
+#
+# name<TAB>target<TAB>sed-expr<TAB>suite<TAB>expected-red-cases
+commander-prompt-tail-clip	bin/fleet	s|^        for text_limit, item_limit in COMMANDER_PROMPT_LADDER:|        for text_limit, item_limit in [(1 << 30, 1 << 30)]:  # MUT|	commander_prompt	2,3,9
+commander-prompt-unbounded	bin/fleet	s|if len(data) <= COMMANDER_PROMPT_CAP:|if True:  # MUT|	commander_prompt	2,3,9
+commander-needs-user-total	bin/fleet	s|"total": len(decisions),|"total": len(items),  # MUT|	commander_prompt	4,9,11
+commander-needs-user-ids	bin/fleet	s|ids = \[row\["id"\] for row in decisions\[:COMMANDER_NEEDS_USER_IDS\]\]|ids = []  # MUT|	commander_prompt	4,9,11
+commander-since-window	bin/fleet	s|"after_event_id": previous,|"after_event_id": 0,  # MUT|	commander_prompt	6
+commander-driver-clipped	bin/fleet	s|    if wrapper > COMMANDER_PROMPT_CAP - COMMANDER_PROMPT_BODY_FLOOR:|    if False:  # MUT|	commander_prompt	8
+commander-truncation-silent	bin/fleet	s|"omitted": bool(fields or lists),|"omitted": False,  # MUT|	commander_prompt	2,3,9
+prompt-dict-unbounded	bin/fleet	s|^        kept = items\[:item_limit\]|        kept = items  # MUT|	commander_prompt	12
+prompt-constraints-drift	bin/fleet	s|^COMMANDER_FIELD_MAX_CHARS = 8000|COMMANDER_FIELD_MAX_CHARS = 9000  # MUT|; s|f"{COMMANDER_FIELD_MAX_CHARS} characters, title is nonempty and at "|"8000 characters, title is nonempty and at "  # MUT|	commander_prompt	13
+prompt-artifact-total-partial	bin/fleet	s|"field": "tasks\[\].artifacts", "total": artifacts_goal_total,|"field": "tasks[].artifacts", "total": sum(len(t["artifacts"]) for t in tasks),  # MUT|	commander_prompt	15
+commander-channel-options-missing	bin/fleet	s|"channel_options": channel_options,|"channel_options": [],  # MUT|	commander_prompt	1

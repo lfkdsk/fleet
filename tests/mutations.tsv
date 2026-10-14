@@ -1,0 +1,292 @@
+family-from-channel	bin/fleet	s|family = resolve_family(chans, ch, model)|family = ch["family"]|	smoke	18,19,20
+no-cross-family	bin/fleet	s|if family != "none" and family == review_row\["family"\]:|if False:|	smoke	6,8
+lease-replace	bin/fleet	s|INSERT OR IGNORE INTO lease|INSERT OR REPLACE INTO lease|	smoke	9
+no-orphan-reap	bin/fleet	s|def reap_orphans(conn) -> int:|def reap_orphans(conn) -> int:\n    return 0|	smoke	16
+no-waitpid	bin/fleet	s|os.waitpid(-1, os.WNOHANG)|(0, 0)|	daemon	11
+global-watermark	bin/fleet	s|return os.environ.get("FLEET_CONSUMER") or "default"|return "default"|	ctx	1,2
+no-spill	bin/fleet	s|SPILL_BYTES = 4096|SPILL_BYTES = 10 ** 9|	ctx	8,9
+cursor-no-warning	adapters/cursor.sh	s|^        echo "warning: cursor task.*$|        :|	p7	14
+cursor-no-approve	adapters/cursor.sh	s|ARGS+=(--plugin-dir "$PLUGIN_DIR" --approve-mcps)|ARGS+=(--plugin-dir "$PLUGIN_DIR")|	p7	13
+add-no-git-check	bin/fleet	s|\["git", "-C", cwd, "rev-parse", "--verify", "HEAD"\]|["true"]|	p7	7
+prune-nonterminal	bin/fleet	s|AND status IN ('done','failed','cancelled')|AND status IS NOT NULL|	p7	9
+launch-no-worktree	bin/fleet	s|if task\["worktree_branch"\]:|if task["worktree_branch_MUT"]:|	p7	2,3
+note-writes-file	bin/fleet-mcp	s|proposal_only = True|proposal_only = bool(Path("findings.md").write_text(finding)) or False|	p8	10
+status-silence-restored	bin/fleet	s|print(f"no tasks under.*|pass|	p8	12
+context-cap-ignored	bin/fleet	s|if len(data) > CONTEXT_CAP:|if False and len(data) > CONTEXT_CAP:|	p8	6
+tmpdir-no-home-hash	bin/fleet	s|Path("/var/tmp/fleet") / home_hash() / str(tid)|Path("/var/tmp/fleet") / str(tid)|	p10	1
+die-kills-daemon	bin/fleet	s|raise UnknownChannelError(f"add: unknown channel '{channel}'")|die(f"add: unknown channel '{channel}'")|	p10	9
+pid-null-skip-restored	bin/fleet	s|    if pid <= 0:|    if pid <= 0: return True  # MUT: NULL pid falsely treated alive|	p10	13
+try-start-no-lease-release	bin/fleet	s|^        _release_task_lease(conn, task)$|        pass  # MUT: leak the task lease|	p10	14
+no-schema-check	bin/fleet	s|_check_schema_current(conn)$|pass|	p10	6
+top-db-rw	bin/fleet	s|^    conn = db_connect_ro()|    conn = db_connect()|	p9	4
+top-reaps	bin/fleet	s|^    conn = db_connect_ro()|    reap_orphans(db_connect())\n    conn = db_connect_ro()|	p9	5
+dwidth-len	bin/fleet	s|in ("W", "F")|in ("X",)|	p9	14
+schema-first-token-only	bin/fleet	s|for part in body.split(","):|for part in body.splitlines():|	p10	15
+launch-oserror-only	bin/fleet	s|except Exception:|except OSError:|	p10	16
+fix-drops-unknown-channel	bin/fleet	s|except (UnknownChannelError, TaskRefError, CrossFamilyError,|except (TaskRefError, CrossFamilyError,|	p10	17
+family-drift-launch	bin/fleet	s|now_family = resolve_family(chans, ch_cfg, task\["model"\] or None)|now_family = task["family"]|	p11	1,2
+remote-model-ignored	bin/fleet	s|if "FLEET_MODEL" not in remote_cmd:|if False:  # MUT|	p11	6,9
+family-none-bypass	bin/fleet	s|if ch.get("model") or ch.get("models"):|if False:  # MUT|	p11	10,11
+rule-dedup-no-revision	bin/fleet	s|plan\["revision"\], rule_hashes\[idx\]|0, rule_hashes[idx]|g	p11	13
+review-cwd-repo	bin/fleet	s|review_cwd = t\["worktree"\]|review_cwd = t["cwd"]  # MUT|	p11	14,15
+daemon-no-stale-code	bin/fleet	s|return cur != srow\["v"\]|return False  # MUT|	p11	17
+ro-uri-encoding	bin/fleet	s|urllib.parse.quote(str(p))|str(p)|	p9	20
+review-empty-not-failed	bin/fleet	s|review_empty = task\["review_of"\] is not None and claim_count == 0|review_empty = False and task["review_of"] is not None and claim_count == 0|	p11	19
+worker-empty-not-failed	bin/fleet	s|worker_empty = (|worker_empty = False and (|	daemon	40
+worker-empty-ignores-review-path	bin/fleet	s|guard_applies, worker_guard_reason = _worker_empty_guard_applies(conn, task)|guard_applies, worker_guard_reason = (True, "MUT")  # MUT|	daemon	43
+worker-empty-ignores-claims	bin/fleet	s|claim_count == 0 and artifact_count == 0|True and artifact_count == 0  # MUT|	daemon	41
+worker-empty-ignores-workspace	bin/fleet	s|and not workspace_changed|and True  # MUT: ignore workspace delta|	daemon	42
+top-immutable-sidecars	bin/fleet	s|"?mode=ro"|"?mode=ro\&immutable=1"|	p9	19
+unknown-channel-silent	bin/fleet	s|"unknown channel",|"family drift",|g	p11	21
+review-claims-worktree-only	bin/fleet	s|SELECT claim,evidence FROM claim WHERE task_id=? AND attempt_id IS ? |SELECT claim,evidence FROM claim WHERE task_id=? AND attempt_id IS ? AND 0 |	p11	22
+probe-family-none-skip	bin/fleet	s|^        if ch.get("family") == "none":$|        if False:  # MUT|	p6	9
+probe-upsert-no-update	bin/fleet	s|ON CONFLICT(channel,model) DO UPDATE SET|ON CONFLICT(channel,model) DO NOTHING  # MUT|	p6	10
+ssh-real-exec-drift	adapters/ssh.sh	s|^"\${ARGS\[@\]}" < "\$PROMPT" > "\$OUT" 2>> "\$LOG"$|ssh "$HOST" "$REMOTE_LINE" < "$PROMPT" > "$OUT" 2>> "$LOG"|	p4	6
+remote-model-doublequote	bin/fleet	s|outside = re.sub(r"'\[^'\]\*'", "", remote_cmd)|outside = ""  # MUT|	p11	8
+remote-can-review	bin/fleet	s|if ch.get("ssh_host") or ch.get("node"):|if False:|	p11	24
+archive-no-closure	bin/fleet	s|            if dep_id in moves:|            if False:  # MUT|	p12	2
+archive-copy-to-live	bin/fleet	s|{verb} INTO arch\.{table}|{verb} INTO {table}|	p12	1
+archive-no-migrate	bin/fleet	s|    _migrate_archive(arch, conn)|    pass|	p12	4
+api-dup-agent	adapters/claude_api.sh	s|ARGS+=(--agent "$FLEET_AGENT")$|ARGS+=(--agent "$FLEET_AGENT")\n    ARGS+=(--agent "$FLEET_AGENT")|	p12	5
+cursor-argv-prompt	adapters/cursor.sh	s|^ARGS=(-p --output-format text -f --trust --workspace "$CWD")$|ARGS=(-p "$(cat "$PROMPT")" --output-format text -f --trust --workspace "$CWD")|	p12	7,8
+since-advance-on-trunc	bin/fleet	s|            new_wm = wm$|            new_wm = max((r["id"] for r in rows), default=wm)|	p12	11
+reviewof-unverified	bin/fleet	s#if not ((offered and eff in offered) or (probe and probe\["ok"\])):#if not (((offered and eff in offered) or (probe and probe["ok"])) and False):#	p12	9
+archive-pk-id-only	bin/fleet	s|PRIMARY KEY(archived_seq, id)|PRIMARY KEY(id)|	p12	12
+archive-skip-recheck	bin/fleet	s|re_moves, _ = _archive_plan(conn, sorted(moves))|re_moves = list(moves)|	p12	13
+archive-no-receipt	bin/fleet	s|INSERT INTO meta(k,v) VALUES('archive.batch'|INSERT INTO meta(k,v) VALUES('archive.batch-MUT'|	p12	14
+reviewof-listed-only	bin/fleet	s|if not ((offered and eff in offered) or (probe and probe\["ok"\])):|if not (offered and eff in offered):|	p12	15
+startready-unknown-mut	bin/fleet	s|"unknown channel",|"unknown channel_MUT",|g	daemon	19
+env-denylist-regression	bin/fleet	s|env = adapter_env(ch_cfg, model, task\["effort"\])|env = dict(os.environ); env.update({"FLEET_MODEL": model, "FLEET_EFFORT": ch_cfg.get("effort") or ""})|	smoke	28
+tmp-prune-protects-running	bin/fleet	s|SELECT id FROM task WHERE status IN ('queued','running')|SELECT id FROM task WHERE status IN ('done')|	p13	16
+tmp-prune-deletes-unknown	bin/fleet	s|return "unknown"|return "orphan"|	p13	18
+goal-close-no-live-check	bin/fleet	s|if live and not args.force:|if False and live and not args.force:|	p13	10
+dep-base-multi-accepted	bin/fleet	s|if len(base_deps) > 1:|if len(base_deps) > 99:|	p13	4
+dep-base-no-fallback-event	bin/fleet	s|"task.base_fallback"|"task.base_fallback_MUT"|	p13	3
+tmp-marker-not-written	bin/fleet	s|_tmp_write_marker(tmpdir.parent.parent)|pass  # MUT|	p13	14
+no-env-strip	bin/fleet	s|if k in allow or k.startswith(ENV_ALLOW_PREFIXES)|if True|	smoke	17,28
+brief-inbox-unread	bin/fleet	s|WHERE read_at IS NULL AND to_agent IN (?,'all') |WHERE to_agent IN (?,'all') |	smoke	23
+brief-inbox-marks-read	bin/fleet	s|^    if unread:$|    if unread:\n        conn.execute("UPDATE message SET read_at=?", (now(),)); conn.commit()|	smoke	26
+brief-inbox-no-broadcast	bin/fleet	s|WHERE read_at IS NULL AND to_agent IN (?,'all') |WHERE read_at IS NULL AND to_agent = ? |	smoke	27
+p14-no-once	bin/fleet	s|kind='task.degraded' LIMIT 1|kind='task.degraded_MUT' LIMIT 1|	p14	7
+p14-no-reviewof-check	bin/fleet	s|if reviewed and family == reviewed\["family"\]:|if False:|	p14	4
+p14-no-reviewed-check	bin/fleet	s|if any(family == reviewer\["family"\] for reviewer in reviewers):|if False:|	p14	5
+p14-no-prompt-render	bin/fleet	s|render_task_prompt(Path(task\["spec_path"\]), prompt_base, cfg, family)|pass  # MUT|	p14	8
+p14-no-target-budget	bin/fleet	s|used, quota = budget_state(conn, target, period_now())|used, quota = (0, None)  # MUT|	p14	4,5
+p14-no-degraded-event	bin/fleet	s|log_event(conn, "task.degraded", task_id=task\["id"\], payload=payload)|pass  # MUT|	p14	1,2,7,12
+p14-global-degrades	bin/fleet	s|if running >= max_parallel:|if False:  # MUT|	p14	2
+p14-dep-after-fallback	bin/fleet	s|if not deps_ok:|if False:  # MUT|	p14	3
+p14-brief-no-reason	bin/fleet	s|payload = _task_blocked_payload(conn, t)|payload = None  # MUT|	p14	9
+p14-no-fallback-block	bin/fleet	/per_model, "budget"/,/t = degraded/{s|"reason": "budget"|"reason": "budget_MUT"|}	p14	4,7,9,10
+p14-prompt-inband	bin/fleet	s|spec_path.write_text(prompt_base\["head"\] + notes + tail)|spec_path.write_text(notes.join((prompt_base["head"] + "{CHANNEL_NOTES}" + tail).split("{CHANNEL_NOTES}", 1)))|	p14	8
+p14-brief-timestamp	bin/fleet	s|WHERE blocked.task_id=? AND blocked.kind='task.blocked' |WHERE blocked.task_id=? AND blocked.kind='task.blocked' AND blocked.ts>(SELECT created_at FROM task WHERE id=blocked.task_id) |	p14	9
+p14-lease-after-fallback	bin/fleet	s|if t\["lease"\] and conn.execute(|if False and t["lease"] and conn.execute(|	p14	11
+p14-no-prompt-shape	bin/fleet	s|if not (isinstance(prompt_base, dict) and isinstance(prompt_base.get("head"), str) and isinstance(prompt_base.get("tail"), str)):|if not isinstance(prompt_base, dict):|	p14	14,15,16
+top-json-not-readonly	bin/fleet	s|^    conn = db_connect_ro()$|    conn = db_connect_ro()\n    reap_orphans(conn)|	p9	25
+top-json-row-cap	contrib/publish-activity.py	s|for task in tasks\[:4\]:|for task in tasks:|	p9	29
+top-decisions-fake-count	bin/fleet	s|if decision_count > 3:|if len(decisions) > 3:|	p9	30
+top-decisions-noclip	bin/fleet	s|^        if parts\[1\]:$|        if False and parts[1]:  # MUT|	p9	32
+worktree-audit-ahead	contrib/worktree-audit.sh	s|item\["ahead"\] > 0|item["ahead"] > 999|	contrib	2
+notify-advances-on-send-failure	contrib/notify-lark.py	s|send failed (backend rc={rc}): {err}", file=sys.stderr)|send failed (backend rc={rc}): {err}", file=sys.stderr); save_state(args.state, home, new_event_wm, new_decision_wm)|	contrib	16
+notify-sends-without-target	contrib/notify-lark.py	s|^        target, err = target_of(cfg)$|        target, err = (["--chat-id", "MUT"], None)|	contrib	15
+surface-blocks-without-state	contrib/surface-decisions.py	s|    if not _save_state(state):|    if False:  # MUT: block even though state was not saved|	contrib	30
+api-fleet-base-fallback	adapters/claude_api.sh	s|BASE_URL="${ANTHROPIC_BASE_URL:-${FLEET_API_BASE_URL:-}}"|BASE_URL="${ANTHROPIC_BASE_URL:-}"|	p6	7
+api-no-split	adapters/claude_api.sh	s|S="${FLEET_SUBAGENT_MODEL:-$M}"|S="$M"|	p6	8
+surface-no-cwd-filter	contrib/surface-decisions.py	s|return a == b or a.startswith(b + "/") or b.startswith(a + "/")|return True|	contrib	32,33,36
+surface-global-seen	contrib/surface-decisions.py	s|session_key = str(hook_in.get("session_id") or "_nosession")|session_key = "_nosession"|	contrib	34,37
+surface-no-awake-gate	contrib/surface-decisions.py	s|    gate_awake(unwatched, home, state, session_key)|    pass  # MUT: never block on unwatched work|	contrib	38
+surface-awake-orphan-counts	contrib/surface-decisions.py	s|        if _orphaned(pid):|        if False:|	contrib	41
+surface-awake-any-ledger	contrib/surface-decisions.py	s|        if watched_home and os.path.realpath(watched_home) != home_r:|        if False:|	contrib	42
+surface-awake-no-cap	contrib/surface-decisions.py	s|^MAX_AWAKE_BLOCKS = 3$|MAX_AWAKE_BLOCKS = 999|	contrib	43
+surface-no-worktree-resolve	contrib/surface-decisions.py	s|            owner = worktrees.get(os.path.realpath(cwd))|            owner = None|	contrib	44
+surface-awake-covers-late-task	contrib/surface-decisions.py	s|            if start is None or task_t0 is None or start >= task_t0:|            if True:|	contrib	45
+surface-overflow-marks-all-seen	contrib/surface-decisions.py	s#{r\[0\] for r in shown}#{r[0] for r in fresh}#	contrib	46
+wiring-dry-run-writes	contrib/wiring/install.sh	s|  if \[ "$APPLY" = 0 \]; then|  if false; then|	contrib	47
+wiring-hook-overwrites-settings	contrib/wiring/install.sh	s|        data = json.load(f)|        data = {}|	contrib	48
+wiring-hook-duplicates	contrib/wiring/install.sh	s|        if isinstance(h, dict) and "surface-decisions.py" in str(h.get("command", "")):|        if False:|	contrib	49
+wiring-rewrites-unparseable-settings	contrib/wiring/install.sh	s|^    sys.exit(1)$|    data = {}|	contrib	50
+wiring-notify-enabled-without-target	contrib/wiring/install.sh	s|  if \[ -n "$target" \]; then|  if true; then|	contrib	51
+surface-orphan-any-parent	contrib/surface-decisions.py	s|    return comm not in SHELL_COMMS|    return False|	contrib	56
+surface-env-unreadable-is-none	contrib/surface-decisions.py	s|        return UNREADABLE|        return None|	contrib	57
+surface-worktree-hop-cap	contrib/surface-decisions.py	s|        while True:|        for _ in range(4):|	contrib	57
+surface-no-streak-reset	contrib/surface-decisions.py	s|        clear_awake(state, session_key)|        pass  # MUT: streak survives a watcher|	contrib	58
+commander-no-stale-check	bin/fleet	s|or current != task\["commander_plan_revision"\] or newer|or False or newer|	p19	4
+commander-no-lease	bin/fleet	/_acquire_commander_lease/,/rowcount == 1/{s|return conn.execute(|return True or conn.execute(|;}	p19	1
+commander-no-dedup	bin/fleet	s|already = _applied_dedup_keys(conn, task\["goal_id"\])|already = set()  # MUT|	p19	6
+commander-rounds-uncapped	bin/fleet	s|if int(state\["rounds_used"\]) >= int(state\["max_rounds"\]):|if False:  # MUT|	p19	10
+commander-unbounded-spec	bin/fleet	s|if len(data) <= COMMANDER_PROMPT_CAP:|if True:  # MUT|	p19	11
+commander-failures-uncounted	bin/fleet	/_commander_exhausted/,/def _applied_dedup_keys/{s|    ) + 1$|    ) + 0  # MUT|;}	p19	15
+commander-dedup-over-broad	bin/fleet	s|created_keys = payload.get("created_keys")|created_keys = [candidate.get("dedup_key") for candidate in payload.get("proposed") or [] if isinstance(candidate, dict)]  # MUT|	p19	16
+surface-streak-strict-int	contrib/surface-decisions.py	s|        except (TypeError, ValueError):|        except ():|	contrib	59
+wiring-hook-unquoted-path	contrib/wiring/install.sh	s|cmd = "python3 " + shlex.quote(f"{contrib}/surface-decisions.py")|cmd = f"python3 {contrib}/surface-decisions.py"|	contrib	53
+wiring-unit-token-unquoted	contrib/wiring/install.sh	s|    return chr(34) + tok + chr(34)|    return tok|	contrib	53
+wiring-hook-bad-types	contrib/wiring/install.sh	s|if not isinstance(stop, list) or not all(isinstance(g, dict) for g in stop):|if False:|	contrib	54
+wiring-unit-percent-raw	contrib/wiring/install.sh	s|.replace("%", "%%")|.replace("%", "%")|	contrib	53
+surface-start-epoch-coarse	contrib/surface-decisions.py	s|        return os.stat(f"/proc/{pid}").st_mtime|        pass|	contrib	55
+worktree-merged-always-true	bin/fleet	s|                merged = subprocess.run(|                merged = True or subprocess.run(|	p7	10
+worktree-no-dirty-check	bin/fleet	s|                if wt_exists:|                if False:  # MUT: ignore dirty worktrees|	p7	10
+worktree-dry-run-falls-through	bin/fleet	s|        if args.dry_run:$|        if False:  # MUT: dry-run falls through|	p7	11
+worktree-missing-branch-unmerged	bin/fleet	s|            if repo_exists and not branch_exists and wt_exists:|            if repo_exists and not branch_exists: print(f"skip {t['id']} {branch}: not merged into {repo} HEAD"); continue\n            if repo_exists and not branch_exists and wt_exists:|	p7	21,22
+worktree-missing-repo-unmerged	bin/fleet	s|            branch_exists = repo_exists and bool(branch) and subprocess.run(|            if not repo_exists: print(f"skip {t['id']} {branch}: not merged into {repo} HEAD"); continue\n            branch_exists = repo_exists and bool(branch) and subprocess.run(|	p7	21,22
+worktree-uall-to-uno	bin/fleet	s|^                        \["git", "-C", wt, "status", "--porcelain", "--untracked-files=all"\],$|                        ["git", "-C", wt, "status", "--porcelain", "--untracked-files=no"],|	p7	23
+worktree-drop-rc-check	bin/fleet	s|^                    if status.returncode != 0 or status.stdout:$|                    if status.stdout:  # MUT: ignore git status failure|	p7	25
+worktree-no-toplevel-guard	bin/fleet	s|^        return Path(top.stdout.strip()).resolve() == Path(wt).resolve()$|        return True  # MUT: accept an ancestor repository|	p7	24
+worktree-orphan-no-rmtree	bin/fleet	s|^            shutil.rmtree(wt, ignore_errors=True)$|            pass  # MUT: leave orphan directory on disk|	p7	22
+worktree-short-refs	bin/fleet	s|f"refs/heads/{branch}"|branch|g	p7	10,22
+launch-no-mcp-json	bin/fleet	s|"FLEET_MCP_JSON": json.dumps|"FLEET_MCP_JSON": "" and json.dumps|	p7	16
+context-not-injected	bin/fleet	s|^        render_task_prompt(spec_path, prompt_base, ch, family)  # worker prompt$|        spec_path.write_text(head + spec)|	p8	1,2,3,4
+brief-probe-stale-inverted	bin/fleet	s|^        if ts < cutoff:$|        if ts > cutoff:  # MUT: threshold compared the wrong way round|	p9	41,42,43,44,45,46
+brief-probe-keeps-family-none	bin/fleet	s|^        if ch is None or ch.get("family") == "none":$|        if ch is None:  # MUT: family=none no longer skipped|	p9	44
+brief-probe-no-truncation	bin/fleet	s|stale_probes\[:BRIEF_PROBE_SHOW\]|stale_probes|	p9	43
+brief-probe-oldest-row-wins	bin/fleet	s|SELECT channel, MAX(checked_at) FROM model_probe GROUP BY channel|SELECT channel, MIN(checked_at) FROM model_probe GROUP BY channel|	p9	46
+brief-probe-stale-h-ignored	bin/fleet	s|int(os.environ.get("FLEET_PROBE_STALE_H", "12"))|12  # MUT: env override dropped|	p9	45
+brief-probe-always-prints	bin/fleet	s|^    if stale_probes:$|    if True:  # MUT: line printed with nothing stale|	p9	41,45,46
+gate-refuses-stale-probe	bin/fleet	s|"SELECT ok,note FROM model_probe WHERE channel=? AND model=?",|"SELECT ok,note,checked_at FROM model_probe WHERE channel=? AND model=?",|; s|^    if r and not r\["ok"\]:$|    if r and (not r["ok"] or r["checked_at"] < now() - BRIEF_PROBE_STALE_H * 3600):  # MUT|	p9	47
+cursor-writes-residue	adapters/cursor.sh	s@        ARGS+=(--plugin-dir "$PLUGIN_DIR" --approve-mcps)@        mkdir -p "$CWD/.cursor"; cp "$PLUGIN_DIR/.mcp.json" "$CWD/.cursor/mcp.json"; ARGS+=(--plugin-dir "$PLUGIN_DIR" --approve-mcps)@	p16	1,6,9
+cursor-shared-plugin-dir	adapters/cursor.sh	s@/runs/$TASK_ID}/cursor-plugin@/runs}/cursor-plugin@	p16	2,5
+cursor-no-plugin-flag	adapters/cursor.sh	s@ARGS+=(--plugin-dir "$PLUGIN_DIR" --approve-mcps)@ARGS+=(--approve-mcps)@	p16	2,9
+grok-writes-residue	adapters/grok.sh	s@        } > "$CFG" 2>/dev/null@        } > "$CFG" 2>/dev/null; mkdir -p "$CWD/.grok"; cp "$CFG" "$CWD/.grok/config.toml"@	p16	3,6,10
+grok-shared-home	adapters/grok.sh	s@/runs/$TASK_ID}/grok-home@/runs}/grok-home@	p16	4,5
+grok-no-home-export	adapters/grok.sh	s@^        export GROK_HOME="$TASK_HOME"@        :@	p16	10
+grok-no-warning	adapters/grok.sh	s@^        echo "warning: grok task.*$@        :@	p16	8
+grok-farm-no-links	adapters/grok.sh	s@^            ln -sfn "$entry" "$TASK_HOME/$base"@            :@	p16	14
+grok-farm-links-trust	adapters/grok.sh	s@config.toml|trusted_folders.toml|trusted_folders.toml.lock) continue ;;@config.toml) continue ;;@	p16	14
+grok-keeps-operator-fleet	adapters/grok.sh	s@^FLEET_TABLE = re.compile(.*)$@FLEET_TABLE = re.compile(r"(?!x)x")@	p16	15
+doing-no-task-count	bin/fleet	s|    if name == "Task":|    if name == "Task_MUT":|	p9	37
+doing-no-custom-tool	bin/fleet	s|    if ptype == "custom_tool_call":|    if ptype == "custom_tool_call_MUT":|	p9	38
+doing-placeholder-when-empty	bin/fleet	s|        return ""  # no session: print nothing, never a placeholder|        return "-"  # MUT: placeholder when no session|	p9	39
+doing-bad-json-raises	bin/fleet	s|            continue  # a bad or half line is "no record", never a crash|            raise  # MUT: bad JSON crashes the monitor|	p9	40
+doing-slug-slash-only	bin/fleet	s|suffix = "".join("-" if c in "/." else c for c in root_cwd)|suffix = "".join("-" if c in "/" else c for c in root_cwd)|	p9	41
+doing-json-drops-tools	bin/fleet	s|"tools": session.get("tools") or None,|"tools_MUT": session.get("tools") or None,|	p9	42
+doing-shared-cwd-newest	bin/fleet	s|    if len(owned) == 1:  # unique transcript, not the newest jsonl|    if compatible:\n        return compatible[0]\n    if len(owned) == 1:  # unique transcript, not the newest jsonl|	p9	44
+doing-ambiguous-guesses	bin/fleet	s|    return None, None  # ownership unclear: omit the doing line|    return (compatible[0] if compatible else (None, None))  # MUT: guess|	p9	45
+doing-kind-mismatch	bin/fleet	s|    return _ADAPTER_SESSION_KIND.get(_channel_adapter(ch)) == kind  # cross-kind mismatch prints nothing|    return True  # MUT: accept any kind|	p9	46
+doing-drops-fleet-claude-home	bin/fleet	s|^        fleet_home() / "claude-home" / "projects",$|        # MUT: relocated Claude sessions disappear from top|	p9	56
+doing-drops-fleet-claude-api-home	bin/fleet	s|^        fleet_home() / "claude-api-home" / "projects",$|        # MUT: relocated API sessions disappear from top|	p9	57
+top-cursor-guard-removed	bin/fleet	/def _top_curses/,/nodelay/s|except curses.error:|except ZeroDivisionError:|	p9	54
+top-took-ignores-ended	bin/fleet	s|took = human_age((r\["ended_at"\] or now()) - r\["started_at"\])|took = human_age(now() - r["started_at"])|	p9	55
+top-took-json-zero-for-queued	bin/fleet	s|                           if r\["started_at"\] else None),|                           if r["started_at"] else 0),|	p9	55
+adapter-cd-falls-through	adapters/shell.sh	s@cd "$CWD" || exit 1@cd "$CWD" 2>/dev/null || true@	p16	16,17
+adapter-cd-unguarded	adapters/codex.sh	s@cd "$CWD" || exit 1@cd "$CWD"@	p16	17
+claude-managed-allows-symlink-home	adapters/claude_config.sh	/fleet_claude_link_config_entry()/,/if ! exec/{s|\[ ! -L "\$task_home" \]|true|}	p16	24
+claude-managed-drops-canonical-parent	adapters/claude_config.sh	/fleet_claude_link_config_entry()/,/if ! exec/{s|\[ "\$target_parent" = "\$managed_parent" \]|true|}	p16	26
+claude-managed-backup-mv-failure-succeeds	adapters/claude_config.sh	/if ! mv -T -- "\$displaced" "\$backup"/,/^[[:space:]]*fi$/{s|return 1|return 0  # MUT: report backup mv failure as success|}	p16	28
+claude-displaced-chmod-restored-late	adapters/claude_config.sh	/_fleet_claude_archive_displaced()/,/^}/{s|^    if ! chmod 600 "\$displaced"; then$|    if false; then # MUT: defer chmod|;s|^    if ! mv -T -- "\$displaced" "\$backup"; then$|    chmod 600 "$displaced"  # MUT: restore late chmod\n    if ! mv -T -- "$displaced" "$backup"; then|;}	p16	29
+claude-displaced-orphans-not-collected	adapters/claude_config.sh	/_fleet_claude_link_managed_entry()/,/^}/{s|_fleet_claude_collect_displaced|true|}	p16	30
+probe-diagnostic-drops-tail	bin/fleet	s|return line\[:118\] + "..." + line\[-119:\]|return line[:240] + "..."  # MUT|	p6	9
+hook-gate-failure-silent	contrib/surface-decisions.py	s|^    if warn:|    if False:|	contrib	60
+blocked-every-poll	bin/fleet	s|if row and row\["kind"\] == "task.blocked":|if False:|	p18	1,2,3,4,5,6
+blocked-no-episode-boundary	bin/fleet	s|_BLOCK_EPISODE_KINDS = ("task.blocked", "task.start", "task.add", "task.cancel")|_BLOCK_EPISODE_KINDS = ("task.blocked", "task.add", "task.cancel")|	p18	4
+fix-drops-parent	bin/fleet	s|                            parent=src_id,|                            parent=(src_id if t["session_id"] else None),|	p17	5
+fix-drops-note	bin/fleet	s|            L += \["- refutation:", "", "```", note, "```"\]|            pass|	p17	3,4
+fix-base-from-head	bin/fleet	s|    if task\["base_commit"\]:|    if False:  # MUT|	p17	1,2,13
+fix-per-claim	bin/fleet	s|                        conn, t, refuted, prev_fixer=prev_fixer,|                        conn, t, refuted[:1], prev_fixer=prev_fixer,  # MUT|	p17	3
+fix-ignores-dirty	bin/fleet	s|    if dirt:|    if False:  # MUT|	p17	7
+fix-double-fire	bin/fleet	s|                            commit=False,|                            commit=True,|	p17	11
+fix-note-double-spill	bin/fleet	s|        note = v\["note"\] or ""|        note = spill_load(v["note"]) or ""  # MUT|	p17	15
+fix-enqueue-error-leaks-row	bin/fleet	s|                        conn.rollback()  # the half-open transaction dies here|                        pass  # MUT|	p17	17
+fix-chain-from-source	bin/fleet	s|    base_from = prev_fixer if prev_fixer is not None else t|    base_from = t  # MUT|	p17	18
+fix-chain-missing-fixer-falls-back	bin/fleet	s|                        if fx is None:|                        if False:  # MUT|	p17	20,21
+fix-chain-id-reuse	bin/fleet	s|if fx is not None and fx\["parent_id"\] != src_id:|if False:  # MUT|	p17	22
+fix-chain-float-id	bin/fleet	s|fixer_id = (fixer if isinstance(fixer, int)|fixer_id = (int(fixer) if isinstance(fixer, (int, float))|	p17	23
+env-leak-restored	tests/p6_smoke.sh	s|^unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS$|export ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_AUTH_TOKEN=leak_MUT # MUT|	p6	7
+exec-base-from-head	bin/fleet	/def _task_worktree_baseline/,/def _commander_base_candidates/{s|if current_branch != branch or git\["head"\] != branch_tip:|if False:  # MUT: trust worktree HEAD|; s|"branch_tip": branch_tip,|"branch_tip": git["head"],|;}	exec	1
+exec-ignores-live-worker	bin/fleet	s|if task\["pid"\] and pid_alive(task\["pid"\]):|if False:  # MUT: accept a live worker|	exec	1
+exec-identity-by-dir-only	bin/fleet	s|if current_branch != branch or git\["head"\] != branch_tip:|if git["head"] != branch_tip:  # MUT: ignore declared branch identity|	exec	1
+exec-blocked-no-recovery	bin/fleet	s|                    environment_recovery = _commander_environment_recovery(|                    environment_recovery = False and _commander_environment_recovery(  # MUT|	exec	9
+control-exhausted-advances-watermark	bin/fleet	s|state\["last_through_event_id"\] = task\["commander_through_event_id"\]|state["last_through_event_id"] = _goal_max_event_id(conn, task["goal_id"])|	control	7
+control-worktree-reap-window	bin/fleet	s|if t\["pid"\] == WORKTREE_LAUNCH_PID and t\["started_at"\] >= worktree_cutoff:|if False:  # MUT|	control	11
+control-commander-worktree-namespace	bin/fleet	s|                    namespace_worktree=True,|                    namespace_worktree=False,|	control	2
+control-worktree-failure-decision	bin/fleet	s|        _block_task(conn, task, "worktree", f"worktree: {e}")|        log_blocked(conn, tid, {"reason": "launch_failed", "error": str(e)})|	control	2
+ask-message-not-new-info	bin/fleet	/^def cmd_msg_send/,/^def cmd_msg_inbox/{s|^        goal_id=goal_id,$|        goal_id=None,  # MUT|;}	p20	1
+ask-message-truncated-first	bin/fleet	s|"user_messages": rung_user_messages,|"user_messages": rung_user_messages[:item_limit],  # MUT|	p20	11
+ask-no-apply-still-applies	bin/fleet	s|            if no_apply:|            if False:  # MUT|	p20	5
+ask-double-round	bin/fleet	/^def cmd_ask/,/^def cmd_msg_inbox/{s|    conn.execute("BEGIN IMMEDIATE")|    conn.execute("BEGIN")  # MUT: deferred race|;}	p20	12
+ask-message-never-marked-read	bin/fleet	s|        if user_message_ids:|        if False:  # MUT|	p20	1,3
+ask-goal-topic-conflict-allowed	bin/fleet	s|    if goal_id is not None and args.topic != f"goal-{goal_id}":|    if False:  # MUT|	p20	9
+ask-round-not-counted	bin/fleet	/^def cmd_ask/,/^def cmd_msg_inbox/{s|^        state\["rounds_used"\] = int(state.get("rounds_used") or 0) + 1$|        pass  # MUT|;}	p20	10
+ask-current-message-not-preferred	bin/fleet	s|            commander_preferred_message_id=mid, commit=False,|            commander_preferred_message_id=None, commit=False,  # MUT|	p20	13
+ask-goal-budget-bypassed	bin/fleet	s|        if goal\["budget_cap"\] is not None and goal_used >= goal\["budget_cap"\]:|        if False:  # MUT|	p20	15
+ask-json-status-on-stdout	bin/fleet	s|    print(message, file=sys.stderr if args.json else sys.stdout)|    print(message)  # MUT|	p20	16
+prompt-sender-unbounded	bin/fleet	s|return _bounded_metadata(value, COMMANDER_METADATA_MAX_CHARS, field, report)|return str(value)  # MUT|	p20	18
+finish-accepts-stale-attempt	bin/fleet	s|            or t\["attempt_id"\] != args.attempt|            or False  # MUT: stale attempt accepted|	p21	1
+finish-ignores-background-processes	bin/fleet	/^def cmd_finish/,/^def cmd_diff/{s|    if background_processes:|    if False:  # MUT: settle while background processes still run|;}	detached_child	1,2
+claude-p-drops-one-shot-prompt	adapters/claude_p.sh	s|fleet_claude_one_shot_prompt "$PROMPT"|cat -- "$PROMPT"|	claude_early_exit	1
+claude-api-drops-one-shot-prompt	adapters/claude_api.sh	s|fleet_claude_one_shot_prompt "$PROMPT"|cat -- "$PROMPT"|	claude_early_exit	1
+claude-p-accepts-waiting-output	adapters/claude_p.sh	s|&& fleet_claude_reject_waiting_output "$OUT"; then|\&\& false; then  # MUT: accept incomplete final response|	claude_early_exit	3
+claude-api-accepts-waiting-output	adapters/claude_api.sh	s|&& fleet_claude_reject_waiting_output "$OUT"; then|\&\& false; then  # MUT: accept incomplete final response|	claude_early_exit	4
+claude-wait-pattern-never-matches	adapters/claude_config.sh	s|sys.exit(0 if tail and (english.search(tail) or chinese.search(tail)) else 1)|sys.exit(1)  # MUT: explicit final waits look complete|	claude_early_exit	3,4
+background-zero-exit-stays-failed	bin/fleet	s|            adapter_succeeded = background.get("adapter_exit_code") == 0|            adapter_succeeded = False  # MUT: discard the successful adapter result|	detached_child	2,7,9
+background-success-skips-commander	bin/fleet	/^def _settle_successful_adapter/,/^def cmd_finish/{s|    if task\["role"\] == "commander":|    if False:  # MUT: treat commander as an ordinary success|;}	detached_child	14
+background-success-allows-empty-review	bin/fleet	/^def _settle_successful_adapter/,/^def cmd_finish/{s|review_empty = task\["review_of"\] is not None and claim_count == 0|review_empty = False and task["review_of"] is not None and claim_count == 0  # MUT: bypass C3 after a tail|;}	detached_child	15
+successful-output-read-inside-write-txn	bin/fleet	/^def _settle_successful_adapter/,/^def cmd_finish/{s|    if conn.in_transaction:  # successful-output transaction fence|    if task["role"] == "commander" and conn.in_transaction:  # MUT: ordinary output stays under its writer lock|;}	detached_child	19
+successful-output-unreadable-raises	bin/fleet	/^def _settle_successful_adapter/,/^def cmd_finish/{s|    except OSError as exc:  # successful-output OSError guard|    except FileNotFoundError as exc:  # MUT: let directory/permission errors escape|;}	detached_child	16,17,18,19,20
+background-drops-cmdline	bin/fleet	s|                    "cmdline": cmdline,|                    "cmdline": None,  # MUT: discard argv before the process exits|	detached_child	1,9
+background-drops-exit-time	bin/fleet	s|                record\["exited_at"\] = stamp|                record["exited_at"] = None  # MUT: discard exit observation|	detached_child	2,9
+background-skips-secret-redaction	bin/fleet	s|    for pattern in _SECRET_PATTERNS:|    for pattern in ():  # MUT: persist/display argv credentials verbatim|	detached_child	1,10
+background-wait-does-not-wake	bin/fleet	s|            if message:$|            if False and message:  # MUT: wait ignores adapter-done background tasks|	detached_child	1
+background-snapshot-dedup-disabled	bin/fleet	s|and _background_snapshot_signature(previous)|and False and _background_snapshot_signature(previous)|	detached_child	22
+background-unbounded-process-snapshot	bin/fleet	s|    if overflow:  # process-cap mutation anchor|    if False:  # MUT: retain every historical process in each snapshot|	detached_child	11
+background-unbounded-snapshot-count	bin/fleet	s|    if count < BACKGROUND_SNAPSHOT_LIMIT:|    if True:  # MUT: append forever instead of rolling the marked tail|	detached_child	11
+detached-orphan-skips-process-scan	bin/fleet	s|        live_processes = _task_live_process_identities(t, background=background)|        live_processes = []  # MUT: settle/retry despite surviving orphan children|	detached_child	5
+detached-wrapper-ignores-starttime	bin/fleet	s|    return ident\["starttime"\] == int(expected)|    return True  # MUT: trust a recycled session leader|	detached_child	6,7
+detached-no-session-anchor	bin/fleet	s|session_owned and ident\["session"\] == sid|False and ident["session"] == sid|	detached_child	4
+daemon-keeps-worker-identity	bin/fleet	s|        env.pop(key, None)|        pass  # MUT: daemon inherits its launching worker identity|	daemon	36
+daemon-no-auto-migrate	bin/fleet	s|    _migrate_live_ledger(conn)  # daemon startup migration; mutation anchor|    pass  # MUT: old schema reaches the first poll|	daemon	37
+finish-no-auto-migrate	bin/fleet	s|        _migrate_live_ledger(conn)  # callbacks may race daemon startup|        raise  # MUT: callback exits 11 on an old schema|	daemon	38
+claim-ignores-attempt	bin/fleet-mcp	s|if task\["status"\] != "running" or ATTEMPT_ID != task\["attempt_id"\]:|if task["status"] != "running":  # MUT: attempt identity ignored|	p21	2
+legacy-callback-guessed	bin/fleet	s|                (generation, attempt_id, task\["id"\]),|                (generation, "legacy", task["id"]),  # MUT: guessable migrated identity|	p21	7
+lease-no-generation	bin/fleet	s|generation = int(previous\["generation"\] if previous else 0) + 1|generation = 1  # MUT: lease generation never advances|	p21	8
+finish-accepts-legacy-token	bin/fleet	s|            or "legacy" in (args.attempt, t\["attempt_id"\])|            or False  # MUT: legacy token accepted|	p21	10
+mcp-accepts-legacy-token	bin/fleet-mcp	s|if ATTEMPT_ID == "legacy" or task\["attempt_id"\] == "legacy":|if False:  # MUT: legacy token accepted|	p21	10
+switchboard-path-drops-attempt	adapters/switchboard.sh	s|fleet-task-\$TASK_ID-attempt-\$ATTEMPT_ID|fleet-task-$TASK_ID|g	p21	11
+cli-claim-deferred-transaction	bin/fleet	/^def cmd_claim_add/,/^def cmd_claim_list/{s|    conn.execute("BEGIN IMMEDIATE")|    conn.execute("BEGIN")  # MUT: deferred validation race|;}	p21	11
+orphan-ignores-settlement-rowcount	bin/fleet	s|if settled.rowcount != 1:|if False:  # MUT: release lease after failed settlement|	p21	12
+apply-drops-review-of	bin/fleet	s|                    review_of=review_of,|                    review_of=None,  # MUT|	p19	18
+apply-review-of-no-construction	bin/fleet	s|                    spec = spec.rstrip() + separator + review_spec + "\\n"|                    spec = spec  # MUT: omit review construction|	p19	18
+rule-reviews-commander	bin/fleet	s|                    "AND review_of IS NULL AND role='worker'",|                    "AND review_of IS NULL",  # MUT|	p19	17
+commander-rejection-event-dropped	bin/fleet	s|conn, "proposal.rejected"|conn, "proposal.dropped"|	p19	19,20
+commander-rejection-feedback-dropped	bin/fleet	s|            "previous_proposal_rejections": {|            "dropped_proposal_rejections": {  # MUT|	p19	19
+commander-rejection-never-wakes	bin/fleet	s|return rejection_class == "policy" and payload.get("repeated") is not True|return False  # MUT: no rejection wakes|	p19	19
+commander-health-rejection-wakes	bin/fleet	s|frozenset({4, 5, 6, 10})|frozenset({4, 5, 10})  # MUT: failed probe treated as policy|	p19	20
+commander-repeat-rejection-wakes	bin/fleet	s|return rejection_class == "policy" and payload.get("repeated") is not True|return rejection_class == "policy"  # MUT: repeat wakes|	p19	19
+rule-auto-picks-same-family	bin/fleet	s|        if forbid_family is not None and family == forbid_family:|        if False:  # MUT|	daemon	20
+rule-auto-rejections-unlogged	bin/fleet	s|                                auto_rejected=_auto_rejected_payload(|                                _mut_unlogged=_auto_rejected_payload(  # MUT|	daemon	22
+rule-remote-reviewer-as-same-family	bin/fleet	s|if isinstance(e, RemoteReviewerError):|if False:  # MUT|	daemon	25
+plan-set-family-unvalidated	bin/fleet	s|        fam = (r.get("with") or {}).get("family")|        fam = None  # MUT|	daemon	26
+worktree-adopts-stranger-branch	bin/fleet	s|            if reuse is None:|            if reuse is None: reuse = (base, base_source)  # MUT: adopt the stranger branch\n            if False:|	p17	24,26
+auto-picks-unprobed	bin/fleet	s|        if probe is None and name not in prefer:|        if False:  # MUT|	daemon	27,30
+auto-order-by-name	bin/fleet	s|                  key=lambda c: (-freshness(c), c))|                  key=lambda c: c)  # MUT|	daemon	29
+check-passes-on-worker-pass	bin/fleet_checks.py	s|        if (not row or row\["status"\] != "passed"|        if (False  # MUT: accept worker prose|	p22	1,2
+verified-dep-ignores-commit	bin/fleet_checks.py	s|    commit = _delivery_tip(task)|    commit = conn.execute("SELECT commit_sha FROM check_run WHERE task_id=? ORDER BY started_at LIMIT 1", (task["id"],)).fetchone()[0]  # MUT: ignore current delivery branch tip|	p22	3
+check-config-change-reuses-result	bin/fleet_checks.py	/def passed/,/def goal_passed/{s|    spec = current(conn, task\["goal_id"\])|    spec = conn.execute("SELECT * FROM check_spec WHERE goal_id=? ORDER BY version LIMIT 1", (task["goal_id"],)).fetchone()  # MUT|;}	p22	4
+goal-close-ignores-checks	bin/fleet	s|and not fleet_checks.goal_passed(conn, args.id))|and False):  # MUT|	p22	1,3
+check-trusts-foreign-rows	bin/fleet_checks.py	s|                or not row\["delivery_clean"\] or not _authenticated(row))|                or not row["delivery_clean"] or False):  # MUT: trust foreign terminal rows|	p22	11
+check-leaks-daemon-env	bin/fleet_checks.py	s|                    env=_minimal_check_env(),|                    env=dict(os.environ),  # MUT: leak daemon environment|	p22	11
+checks-set-no-managed-cwd-guard	bin/fleet_checks.py	s|            for name in ("worktrees", "runs", "checks")|            for name in ()  # MUT: trust an unset task id|	p22	12
+check-runs-inline	bin/fleet_checks.py	/# No project code can pass/,/return len(gated)/{s|            os.close(write_fd)$|            os.close(write_fd); proc.wait()  # MUT: block the daemon poll|;}	p22	13
+check-passed-rechecks-worktree	bin/fleet_checks.py	s|    commit = _delivery_tip(task)|    commit = delivery(task)  # MUT: recheck prunable worktree|	p22	14
+check-kills-recycled-pgid	bin/fleet_checks.py	/def _recover_running/,/def _blocked_delivery/{s|        if pgid_matches:|        if row["pgid"]:  # MUT: trust bare pgid|;}	p22	15
+checks-green-does-not-wake-autonomy	bin/fleet	s|            checks_green_wake = bool(|            checks_green_wake = False and bool(  # MUT|	p22	10
+gate-flag-unprotected	schema.sql	/CREATE TRIGGER IF NOT EXISTS goal_verify_required_guard/,/BEGIN SELECT RAISE/{s| AND fleet_verify_authorized() != 1| AND 0 /* MUT: permit direct gate update */|;}	p22	16
+tamper-triggers-unnoticed	bin/fleet_checks.py	s|    if integrity_issue:|    if False:  # MUT: ignore trigger tampering|	p22	17
+tamper-event-latch-ignored	bin/fleet_checks.py	/def trigger_set_intact/,/def _record_trigger_tamper/{s|    if (_trigger_latched(conn)|    if (False  # MUT: ignore append-only event latch|;}	p22	19
+protected-trigger-prefix-blind	bin/fleet_checks.py	s|            "SELECT name,sql FROM sqlite_master WHERE type='trigger'"|            "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND (substr(name,1,6)='check_' OR substr(name,1,5)='event' OR substr(name,1,12)='goal_verify_')"  # MUT: hide non-prefix triggers|	p22	20
+sealed-history-amnesty-ignored	bin/fleet_checks.py	s|            and not _seal_history_present(conn)|            and True  # MUT: re-enable upgrade amnesty after seal|	p22	21
+all-table-filter-restored	bin/fleet_checks.py	s|            "SELECT name,sql FROM sqlite_master WHERE type='trigger'"|            "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('event','goal','check_spec','check_run','check_reseal_permit')"  # MUT: restore five-table filter|	p22	23
+finish-admits-unsigned-unmigrated	bin/fleet	s|if row and row\["unsigned_ok"\] == 1 and|if row and True and|  # MUT: unsigned admitted for any attempt	p21	8
+finish-ignores-migrated-pid	bin/fleet	s|and row\["pid"\] == os.getpid():|and True:  # MUT: permit not bound to the wrapper pid|	p21	7
+check-claim-attributed-to-current-attempt	bin/fleet_checks.py	s|attempt_id = judged\[0\] if judged else task\["attempt_id"\]|attempt_id = task["attempt_id"]  # MUT: stamped with the current attempt|	p22	18
+add-accepts-terminal-dep	bin/fleet	s|        elif not force_dep:|        elif False and not force_dep:  # MUT: silently enqueue deps that will never be done|	p13	22
+escalate-commander-rounds	bin/fleet	s|                    "AND attempt>=max_attempts AND role='worker'",|                    "AND attempt>=max_attempts",  # MUT|	daemon	34
+resolver-ignores-exclude	bin/fleet	s|        if name in exclude:|        if False:  # MUT|	p24resolver	1,3
+resolver-ignores-forbid-family	bin/fleet	s|        if forbid_family is not None and family == forbid_family:|        if False:  # MUT|	p24resolver	2
+claude-uses-file-mtime-for-oauth	adapters/claude_config.sh	s@fresh_expiry = fresh_oauth\["expiresAt"\]@if os.path.getmtime(fresh_path) <= os.path.getmtime(current_path): sys.exit(1)  # MUT\nfresh_expiry = fresh_oauth["expiresAt"]@	p16	39
+claude-promotes-stale-credential	adapters/claude_config.sh	s@if fresh_expiry < current_expiry:@if False:  # MUT@	p16	34,40
+claude-promotes-incomplete-credential	adapters/claude_config.sh	s@        if not isinstance(value, str) or not value:@        if False:  # MUT@	p16	35
+claude-never-promotes-credential	adapters/claude_config.sh	s@    \[ "$entry_name" = .credentials.json \] || return 1@    return 1  # MUT@	p16	33
+claude-no-postrun-credential-sync	adapters/claude_p.sh	s@if \[ -n "${CLAUDE_CONFIG_DIR:-}" \] && \[ "${FLEET_CLAUDE_AUTH:-}" = oauth \]; then@if false; then  # MUT@	p16	36
+claude-promotes-logged-out-credential	adapters/claude_config.sh	s@        if not isinstance(value, str) or not value:@        if False:  # MUT@	p16	37
+claude-promotion-drops-mcp-oauth	adapters/claude_config.sh	s@merged = dict(current)@merged = dict(fresh)  # MUT@	p16	39
+claude-api-links-user-oauth	adapters/claude_config.sh	s@                "${FLEET_HOME:-$HOME/.fleet}/claude-api-home" 0@                "${FLEET_HOME:-$HOME/.fleet}/claude-api-home" 1  # MUT@	p16	18
+gate-touches-commander-rounds	bin/fleet	s@                    "AND role=.worker.",@                    "",  # MUT@	daemon	35
+spec-source-notice-dropped	bin/fleet	s|source_notice = "" if role == "commander" else _spec_source_notice(spec_source)|source_notice = ""  # MUT: drop visible file-spec source notice|	smoke	34

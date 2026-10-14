@@ -1,0 +1,11 @@
+[Unit]
+Description=Publish a fleet activity snapshot for Switchboard
+
+[Service]
+Type=oneshot
+# `fleet` and its friends live in ~/.local/bin; a user unit does not inherit
+# the login shell's PATH, and publish-activity.py shells out to a bare `fleet`.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env python3 @CONTRIB@/publish-activity.py
+# No activity.d directory means Switchboard is not installed here: the script
+# exits 0 without writing, so a missing consumer is not a failure.

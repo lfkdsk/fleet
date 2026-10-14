@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to ${XDG_CONFIG_HOME:-~/.config}/fleet-contrib/notify-lark.json. Exactly one target is used: chat_id wins over user_id. With neither, notify-lark.py --send exits 2 and calls no backend at all.",
+  "chat_id": "",
+  "user_id": ""
+}

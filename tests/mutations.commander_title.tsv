@@ -1,0 +1,21 @@
+# Local mutation manifest for the commander title-truncation fix,
+# kept out of the shared tests/mutations.tsv for the same reason the
+# commander_prompt manifest is: mutate.sh maps suite names in its own
+# suite_path(), and the shared manifest is a batch other tasks run against.
+# Run with:
+#   FLEET_MUTATIONS=tests/mutations.commander_title.tsv tests/mutate.sh
+# and the sed/sha half only:
+#   FLEET_MUTATIONS=tests/mutations.commander_title.tsv tests/mutate.sh --check-only
+#
+# name<TAB>target<TAB>sed-expr<TAB>suite<TAB>expected-red-cases
+
+# Disable the clip: titles ride through uncut, so the round event's created
+# tasks carry the original 71/48-char titles instead of the 40-char bound.
+title-clip-disabled	bin/fleet	s|            candidate\["title"\] = _commander_clip_title(original_title)|            candidate["title"] = original_title  # MUT: no clip|	p19	21
+
+# Restore the old hard rejection: one overlong title voids the whole round
+# and the commander burns all three attempts.
+title-hard-reject-restored	bin/fleet	s|^            original_title = candidate\["title"\]$|            raise ValueError("candidate title exceeds 40 characters")  # MUT|	p19	21
+
+# Drop the fleet add stderr warning: human overlong titles enqueue silently.
+fleet-add-title-warning-dropped	bin/fleet	s|    if len(title) > COMMANDER_TITLE_MAX_CHARS:|    if False:  # MUT|	smoke	30

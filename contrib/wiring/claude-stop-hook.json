@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 @CONTRIB@/surface-decisions.py",
+            "timeout": 10,
+            "statusMessage": "checking fleet decisions"
+          }
+        ]
+      }
+    ]
+  }
+}

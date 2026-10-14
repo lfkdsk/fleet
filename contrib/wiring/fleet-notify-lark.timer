@@ -1,0 +1,10 @@
+[Unit]
+Description=Push fleet's increment to Lark every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=fleet-notify-lark.service
+
+[Install]
+WantedBy=timers.target

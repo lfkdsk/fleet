@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fleet goals</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+.tools{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:8px}
+.tools .filters{margin:0}
+.tools input{font:12px var(--mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 8px;min-width:0;flex:1 1 220px;max-width:360px}
+.tools select{font:12px var(--mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:3px 6px}
+#goals td{vertical-align:top}
+#goals .nw,#goals th{white-space:nowrap}
+#goals td.num{text-align:right;white-space:nowrap}
+.mini{display:flex;height:6px;width:72px;border-radius:3px;overflow:hidden;background:var(--line);margin-top:3px;margin-left:auto}
+.mini i{display:block}
+.tag{font:11px var(--mono);color:var(--mut);margin-left:6px;white-space:nowrap}
+.tag.bad{color:var(--fail)}.tag.ok{color:var(--run)}
+.g-open{color:var(--run)}.g-done{color:var(--done)}.g-closed,.g-abandoned{color:var(--mut)}
+@media (max-width:640px){
+ #goals thead{display:none}
+ #goals tr{display:grid;grid-template-columns:auto auto 1fr auto auto;gap:2px 10px;padding:6px 0;border-bottom:1px solid var(--line)}
+ #goals td{border:0;padding:0}
+ #goals td.t{grid-column:1/-1;grid-row:2;min-width:0}
+ #goals td.num{grid-column:5;grid-row:1}
+ .mini{width:56px}
+}
+</style>
+</head><body><div class="wrap">
+<header>
+ <h1><a href="/">fleet top</a> / goals</h1>
+ <span class="stat">共 <b id="ntot">–</b></span>
+ <span class="stat" id="bystat"></span>
+ <span id="age" class="stat">loading…</span>
+</header>
+<section style="margin-top:14px"><h2>全部 goal</h2>
+ <div class="tools">
+  <div class="filters" id="filters"></div>
+  <input id="q" type="search" placeholder="搜编号或目标文字" aria-label="搜索 goal">
+  <label class="stat">排序 <select id="sort"><option value="id">编号</option><option value="last">最近活动</option><option value="total">任务数</option></select></label>
+ </div>
+ <div class="tbl"><table id="goals"><thead><tr><th>ID</th><th>状态</th><th style="text-align:right">任务</th><th>创建</th><th>最近活动</th><th>目标</th></tr></thead><tbody></tbody></table></div>
+ <div class="stat" id="shown" style="margin-top:6px"></div>
+</section>
+<footer>只读；每 30 秒刷新。任务列：总数，下面的条是 done / failed / cancelled / 在跑排队 的比例。</footer>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dur = s => s == null ? "–" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s/60) + "m" : s < 172800 ? (s/3600).toFixed(1) + "h" : Math.floor(s/86400) + "d";
+const ago = (t, now) => t ? dur(Math.max(0, now - t)) + "前" : "–";
+const day = t => t ? new Date(t * 1000).toLocaleDateString("zh-CN") : "–";
+let data = null, filter = "all", last = 0;
+try { filter = localStorage.getItem("goalsFilter") || "all"; $("sort").value = localStorage.getItem("goalsSort") || "id"; } catch (e) {}
+
+function renderRows() {
+  const now = data.served_at, q = $("q").value.trim().toLowerCase(), key = $("sort").value;
+  let gs = data.goals.filter(g => filter === "all" || (filter === "live" ? g.live > 0 : g.status === filter));
+  if (q) gs = gs.filter(g => String(g.id) === q.replace(/^g/, "") || (g.statement || "").toLowerCase().includes(q));
+  gs = gs.slice().sort((a, b) => key === "last" ? (b.last_at || b.created_at) - (a.last_at || a.created_at) : key === "total" ? b.total - a.total || b.id - a.id : b.id - a.id);
+  $("goals").tBodies[0].innerHTML = gs.map(g => {
+    const w = v => (100 * (v || 0) / Math.max(1, g.total)) + "%";
+    return `<tr><td><a href="/goal/${g.id}">G${g.id}</a></td>`
+      + `<td class="g-${esc(g.status)}">${esc(g.status)}</td>`
+      + `<td class="num">${g.total}${g.total ? `<div class="mini" title="done ${g.done || 0} · failed ${g.failed || 0} · cancelled ${g.cancelled || 0} · 在跑/排队 ${g.live || 0}"><i style="width:${w(g.done)};background:var(--done)"></i><i style="width:${w(g.failed)};background:var(--fail)"></i><i style="width:${w(g.cancelled)};background:var(--mut)"></i><i style="width:${w(g.live)};background:var(--run)"></i></div>` : ""}</td>`
+      + `<td class="nw">${day(g.created_at)}</td><td class="nw">${ago(g.last_at, now)}</td>`
+      + `<td class="t"><a href="/goal/${g.id}">${esc(g.statement)}</a>${g.live ? `<span class="tag ok">在跑/排队 ${g.live}</span>` : ""}${g.auto ? `<span class="tag">自主推进</span>` : ""}${g.needs_user ? `<span class="tag bad">等你拍板 ${g.needs_user}</span>` : ""}</td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="empty">没有匹配的 goal</td></tr>`;
+  $("shown").textContent = gs.length < data.goals.length ? `显示 ${gs.length} / ${data.goals.length}` : "";
+}
+
+function render(d) {
+  data = d;
+  const n = {}; for (const g of d.goals) n[g.status] = (n[g.status] || 0) + 1;
+  const live = d.goals.filter(g => g.live > 0).length;
+  $("ntot").textContent = d.goals.length;
+  $("bystat").innerHTML = Object.entries(n).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(k)} <b>${v}</b>`).join(" · ");
+  const fs = [["all", "全部"], ["live", `有任务在跑 ${live}`], ...Object.keys(n).sort().map(k => [k, `${k} ${n[k]}`])];
+  if (!fs.some(([k]) => k === filter)) filter = "all";
+  $("filters").innerHTML = fs.map(([k, l]) => `<button data-f="${esc(k)}" aria-pressed="${k === filter}">${esc(l)}</button>`).join("");
+  $("filters").querySelectorAll("button").forEach(b => b.onclick = () => { filter = b.dataset.f; try { localStorage.setItem("goalsFilter", filter); } catch (e) {} render(data); });
+  renderRows();
+}
+$("q").oninput = () => data && renderRows();
+$("sort").onchange = () => { try { localStorage.setItem("goalsSort", $("sort").value); } catch (e) {} data && renderRows(); };
+
+async function tick() {
+  try {
+    const r = await fetch("/api/goals", {cache: "no-store"});
+    if (r.status === 401) { location.reload(); return; }
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json()); last = Date.now();
+  } catch (e) { $("age").textContent = "刷新失败：" + e.message; $("age").className = "stat bad"; }
+}
+setInterval(() => { if (last) { $("age").textContent = "更新于 " + Math.round((Date.now() - last)/1000) + " 秒前"; $("age").className = "stat"; } }, 1000);
+tick(); setInterval(tick, 30000);
+</script>
+</body></html>

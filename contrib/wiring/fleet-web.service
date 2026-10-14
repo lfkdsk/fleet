@@ -1,0 +1,12 @@
+[Unit]
+Description=fleet-web: read-only web view of fleet top (auto-refresh)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/share/fleet-web/fleet_web.py
+Environment=FLEET_WEB_PORT=8790
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

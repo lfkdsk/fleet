@@ -1,0 +1,651 @@
+#!/usr/bin/env python3
+"""fleet-mcp - stdio MCP server for fleet task agents (P2).
+
+Hand-written JSON-RPC 2.0 over stdio (newline-delimited); the Python standard
+library only. One server process serves exactly one task attempt:
+FLEET_TASK_ID and FLEET_ATTEMPT pin that identity, and FLEET_HOME locates the
+ledger.
+
+Protocol discipline: stdout carries protocol messages and nothing else; every
+diagnostic goes to stderr, or the protocol stream is poisoned.
+"""
+
+import hashlib
+import json
+import os
+import re
+import sqlite3
+import sys
+import time
+from pathlib import Path
+
+PROTOCOL_VERSION_DEFAULT = "2025-06-18"
+SUMMARY_CAP = 2000
+# Must match bin/fleet: bodies over this spill to $FLEET_HOME/blobs/<sha>.
+SPILL_BYTES = 4096
+SERVER_NAME = "fleet"
+SERVER_VERSION = "0.2.0"
+
+FLEET_HOME = Path(os.environ.get("FLEET_HOME") or (Path.home() / ".fleet"))
+TASK_ID = os.environ.get("FLEET_TASK_ID")
+ATTEMPT_ID = os.environ.get("FLEET_ATTEMPT")
+SELF_IDENTITY = f"task-{TASK_ID}" if TASK_ID else None
+
+
+def log(msg: str) -> None:
+    # Debug output must never touch stdout.
+    print(f"fleet-mcp: {msg}", file=sys.stderr)
+
+
+def now() -> int:
+    return int(time.time())
+
+
+def spill_store(text):
+    if not text:
+        return text
+    data = text.encode("utf-8")
+    if len(data) <= SPILL_BYTES:
+        return text
+    digest = hashlib.sha256(data).hexdigest()
+    blob_dir = FLEET_HOME / "blobs"
+    blob_dir.mkdir(parents=True, exist_ok=True)
+    path = blob_dir / digest
+    if not path.exists():
+        path.write_bytes(data)
+    return json.dumps({"_spill": str(path), "bytes": len(data)})
+
+
+def spill_load(text):
+    if not text:
+        return text
+    try:
+        ptr = json.loads(text)
+    except (ValueError, TypeError):
+        return text
+    if isinstance(ptr, dict) and "_spill" in ptr:
+        try:
+            return Path(ptr["_spill"]).read_text()
+        except OSError:
+            return text
+    return text
+
+
+def db_connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(FLEET_HOME / "fleet.db"), timeout=15)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def task_exists(conn, task_id) -> bool:
+    if task_id is None:
+        return False
+    try:
+        tid = int(task_id)
+    except (TypeError, ValueError):
+        return False
+    return conn.execute(
+        "SELECT 1 FROM task WHERE id=?", (tid,)
+    ).fetchone() is not None
+
+
+# ---------------------------------------------------------------------------
+# tool implementations
+#
+# Each returns a plain object that gets JSON-encoded into the text content.
+# Failures raise ToolError; the dispatcher turns it into isError content.
+# ---------------------------------------------------------------------------
+
+
+class ToolError(Exception):
+    pass
+
+
+def stale_attempt(conn, task, supplied, source, reason=None) -> None:
+    if reason is None and (supplied == "legacy"
+                           or task["attempt_id"] == "legacy"):
+        reason = "legacy"
+    payload = {
+        "source": source, "supplied": supplied,
+        "current": task["attempt_id"], "status": task["status"],
+    }
+    if reason:
+        payload["reason"] = reason
+    conn.execute(
+        "INSERT INTO event(ts,task_id,kind,payload) VALUES(?,?,?,?)",
+        (now(), int(TASK_ID), "attempt.stale",
+         json.dumps(payload, ensure_ascii=False)),
+    )
+
+
+def require_writable(conn) -> None:
+    # Validate and write under one SQLite writer lock. Otherwise a retry could
+    # install its new attempt between this SELECT and the tool's INSERT.
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    # Every write-class tool needs a live task identity. A missing or unknown
+    # FLEET_TASK_ID means the server is misconfigured: refuse to write.
+    if not task_exists(conn, TASK_ID):
+        raise ToolError(
+            f"FLEET_TASK_ID={TASK_ID!r} does not identify an existing task; "
+            "write tools are disabled"
+        )
+    task = conn.execute(
+        "SELECT status,attempt_id FROM task WHERE id=?", (int(TASK_ID),)
+    ).fetchone()
+    if ATTEMPT_ID == "legacy" or task["attempt_id"] == "legacy":
+        stale_attempt(conn, task, ATTEMPT_ID, "mcp", reason="legacy")
+        conn.commit()
+        raise ToolError("legacy is not an authenticated worker attempt")
+    if not ATTEMPT_ID:
+        raise ToolError(
+            "FLEET_ATTEMPT is required for worker writes; legacy unsigned "
+            "callbacks are read-only"
+        )
+    if task["status"] != "running" or ATTEMPT_ID != task["attempt_id"]:
+        raise ToolError(
+            f"stale worker attempt {ATTEMPT_ID!r}; current attempt is "
+            f"{task['attempt_id']!r} ({task['status']})"
+        )
+
+
+def dep_summary(conn, dep_id: int) -> str:
+    # Prefer the newest non-empty artifact summary; fall back to the first
+    # SUMMARY_CAP bytes of the dep's own out.md. Never the full out.md.
+    row = conn.execute(
+        "SELECT summary FROM artifact WHERE task_id=? AND attempt_id IS "
+        "(SELECT attempt_id FROM task WHERE id=?) AND summary IS NOT NULL "
+        "AND summary != '' ORDER BY id DESC LIMIT 1",
+        (dep_id, dep_id),
+    ).fetchone()
+    if row:
+        return row["summary"][:SUMMARY_CAP]
+    t = conn.execute("SELECT out_path FROM task WHERE id=?", (dep_id,)).fetchone()
+    if t and t["out_path"]:
+        p = Path(t["out_path"])
+        if p.exists():
+            return p.read_bytes()[:SUMMARY_CAP].decode("utf-8", errors="replace")
+    return ""
+
+
+def tool_task_get(conn, params) -> dict:
+    if not task_exists(conn, TASK_ID):
+        raise ToolError(f"FLEET_TASK_ID={TASK_ID!r} does not identify an existing task")
+    t = conn.execute("SELECT * FROM task WHERE id=?", (int(TASK_ID),)).fetchone()
+    spec = ""
+    if t["spec_path"]:
+        sp = Path(t["spec_path"])
+        if sp.exists():
+            spec = sp.read_text()
+    deps = []
+    for d in (t["deps"] or "").split(","):
+        d = d.strip()
+        if not d:
+            continue
+        dep = conn.execute(
+            "SELECT id,title,status FROM task WHERE id=?", (int(d),)
+        ).fetchone()
+        if not dep:
+            continue
+        deps.append(
+            {
+                "id": dep["id"],
+                "title": dep["title"],
+                "status": dep["status"],
+                "summary": dep_summary(conn, dep["id"]),
+            }
+        )
+    return {
+        "id": t["id"],
+        "title": t["title"],
+        "status": t["status"],
+        "channel": t["channel"],
+        "attempt_id": t["attempt_id"],
+        "spec": spec,
+        "deps": deps,
+    }
+
+
+def tool_claim(conn, params) -> dict:
+    require_writable(conn)
+    claim = params.get("claim")
+    evidence = params.get("evidence")
+    if not isinstance(claim, str) or not claim.strip():
+        raise ToolError("claim is required and must be a non-blank string")
+    if not isinstance(evidence, str) or not evidence.strip():
+        # No row may be written in this case.
+        raise ToolError(
+            "evidence is required and must be a non-blank string: use file:line "
+            "pointers, command+output, or artifact paths -- vague narratives "
+            "are rejected"
+        )
+    cur = conn.execute(
+        "INSERT INTO claim(task_id,claim,evidence,status,ts,attempt_id) "
+        "VALUES(?,?,?,?,?,?)",
+        (int(TASK_ID), claim, evidence, "unverified", now(), ATTEMPT_ID),
+    )
+    conn.commit()
+    return {"claim_id": cur.lastrowid}
+
+
+def tool_artifact(conn, params) -> dict:
+    require_writable(conn)
+    path = params.get("path")
+    if not isinstance(path, str) or not path:
+        raise ToolError("path is required")
+    p = Path(path)
+    if not p.exists():
+        raise ToolError(f"path does not exist: {path}")
+    data = p.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    kind = params.get("kind") or "file"
+    summary = params.get("summary")
+    cur = conn.execute(
+        "INSERT INTO artifact(task_id,kind,path,sha256,bytes,summary,ts,attempt_id) "
+        "VALUES(?,?,?,?,?,?,?,?)",
+        (int(TASK_ID), kind, str(p), digest, len(data), summary, now(), ATTEMPT_ID),
+    )
+    conn.commit()
+    return {"artifact_id": cur.lastrowid, "sha256": digest, "bytes": len(data)}
+
+
+def tool_send(conn, params) -> dict:
+    require_writable(conn)
+    to = params.get("to")
+    body = params.get("body")
+    if not isinstance(to, str) or not to.strip():
+        raise ToolError("to is required")
+    if to != "commander":
+        m = re.fullmatch(r"task-(\d+)", to)
+        if not m or not task_exists(conn, m.group(1)):
+            raise ToolError(
+                f"invalid recipient {to!r}: must be 'commander' or 'task-<n>' "
+                "for an existing task"
+            )
+    if not isinstance(body, str) or not body:
+        raise ToolError("body is required")
+    topic = params.get("topic")
+    reply_to = params.get("reply_to")
+    cur = conn.execute(
+        "INSERT INTO message(ts,from_agent,to_agent,topic,body,reply_to,attempt_id) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (now(), SELF_IDENTITY, to, topic, spill_store(body), reply_to, ATTEMPT_ID),
+    )
+    conn.commit()
+    return {"message_id": cur.lastrowid}
+
+
+def tool_inbox(conn, params) -> dict:
+    require_writable(conn)
+    since = params.get("since") or 0
+    mark_read = params.get("mark_read", True)
+    rows = conn.execute(
+        "SELECT * FROM message WHERE to_agent IN (?, 'all') AND read_at IS NULL "
+        "AND id > ? ORDER BY id",
+        (SELF_IDENTITY, int(since)),
+    ).fetchall()
+    msgs = [dict(r) for r in rows]
+    for m in msgs:
+        m["body"] = spill_load(m["body"])
+    if mark_read and msgs:
+        ids = [m["id"] for m in msgs]
+        ph = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE message SET read_at=? WHERE id IN ({ph})", [now()] + ids
+        )
+        conn.commit()
+    return {"messages": msgs}
+
+
+def tool_spawn(conn, params) -> dict:
+    require_writable(conn)
+    title = params.get("title")
+    rationale = params.get("rationale")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolError("title is required and must be a non-blank string")
+    if not isinstance(rationale, str) or not rationale.strip():
+        raise ToolError("rationale is required and must be a non-blank string")
+    channel = params.get("channel")
+    body = json.dumps(
+        {
+            "title": title,
+            "rationale": rationale,
+            "channel": channel,
+            "proposed_by": SELF_IDENTITY,
+        },
+        ensure_ascii=False,
+    )
+    cur = conn.execute(
+        "INSERT INTO message(ts,from_agent,to_agent,topic,body,attempt_id) "
+        "VALUES(?,?,?,?,?,?)",
+        (now(), SELF_IDENTITY, "commander", "spawn-proposal", body, ATTEMPT_ID),
+    )
+    conn.commit()
+    return {
+        "recorded": True,
+        "enqueued": False,
+        "note": "proposal only; the commander decides",
+        "message_id": cur.lastrowid,
+    }
+
+
+def tool_note(conn, params) -> dict:
+    require_writable(conn)
+    finding = params.get("finding")
+    evidence = params.get("evidence")
+    if not isinstance(finding, str) or not finding.strip():
+        raise ToolError("finding is required and must be a non-blank string")
+    if not isinstance(evidence, str) or not evidence.strip():
+        # No row may be written in this case.
+        raise ToolError(
+            "evidence is required and must be a non-blank string: use file:line "
+            "pointers, command+output, or artifact paths -- vague narratives "
+            "are rejected"
+        )
+    # A note is a proposal: this tool writes no files. The commander decides
+    # what becomes durable project knowledge -- "is this worth every later
+    # task reading" is a judgment call that is not delegated.
+    proposal_only = True
+    body = json.dumps(
+        {
+            "finding": finding,
+            "evidence": evidence,
+            "proposed_by": SELF_IDENTITY,
+        },
+        ensure_ascii=False,
+    )
+    cur = conn.execute(
+        "INSERT INTO message(ts,from_agent,to_agent,topic,body,attempt_id) "
+        "VALUES(?,?,?,?,?,?)",
+        (now(), SELF_IDENTITY, "commander", "note-proposal", body, ATTEMPT_ID),
+    )
+    conn.commit()
+    return {
+        "recorded": True,
+        "filed": not proposal_only,
+        "note": "proposal only; the commander decides what becomes durable",
+        "message_id": cur.lastrowid,
+    }
+
+
+TOOLS = [
+    {
+        "name": "fleet_task_get",
+        "description": (
+            "Read your own task: id, title, status, channel, the full spec text, "
+            "and a short summary (never the full text) of each task you depend on."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        "fn": tool_task_get,
+    },
+    {
+        "name": "fleet_claim",
+        "description": (
+            "Record a substantive conclusion about your work, with evidence. "
+            "Call this once per conclusion before you finish. Evidence must be "
+            "concrete: file:line pointers, a command plus its output, or an "
+            "artifact path. Vague narrative evidence is rejected, and a claim "
+            "without evidence is not written."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "claim": {"type": "string", "description": "the conclusion"},
+                "evidence": {
+                    "type": "string",
+                    "description": "file:line, command+output, or artifact path",
+                },
+            },
+            "required": ["claim", "evidence"],
+            "additionalProperties": False,
+        },
+        "fn": tool_claim,
+    },
+    {
+        "name": "fleet_artifact",
+        "description": (
+            "Register a file you produced. The server computes size and sha256 "
+            "itself; do not trust client-supplied values. Optional summary lets "
+            "downstream tasks read your result without opening the file."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "kind": {"type": "string"},
+                "summary": {"type": "string"},
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        "fn": tool_artifact,
+    },
+    {
+        "name": "fleet_send",
+        "description": (
+            "Send a message to 'commander' or to another task ('task-<n>'; the "
+            "task must exist). Messages are delivered when the recipient checks "
+            "its inbox, not pushed."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string"},
+                "body": {"type": "string"},
+                "topic": {"type": "string"},
+                "reply_to": {"type": "integer"},
+            },
+            "required": ["to", "body"],
+            "additionalProperties": False,
+        },
+        "fn": tool_send,
+    },
+    {
+        "name": "fleet_inbox",
+        "description": (
+            "Read unread messages addressed to you (or to 'all'). By default "
+            "messages are marked read, so calling twice returns nothing the "
+            "second time. Pass mark_read=false to peek. 'since' filters to "
+            "messages with id greater than it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since": {"type": "integer"},
+                "mark_read": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        },
+        "fn": tool_inbox,
+    },
+    {
+        "name": "fleet_spawn",
+        "description": (
+            "Propose that the commander create a follow-up task. This does NOT "
+            "create a task and does NOT start any work: it only records a "
+            "proposal message; the commander decides whether to enqueue it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "rationale": {"type": "string"},
+                "channel": {"type": "string"},
+            },
+            "required": ["title", "rationale"],
+            "additionalProperties": False,
+        },
+        "fn": tool_spawn,
+    },
+    {
+        "name": "fleet_note",
+        "description": (
+            "Propose a project-level finding for the commander to archive. "
+            "This does NOT write the finding into any findings file or any "
+            "other file: it only records a proposal message "
+            "(topic=note-proposal); the commander decides what becomes "
+            "durable. Evidence is held to the same standard as fleet_claim."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "finding": {
+                    "type": "string",
+                    "description": "the conclusion worth keeping",
+                },
+                "evidence": {
+                    "type": "string",
+                    "description": "file:line, command+output, or artifact path",
+                },
+            },
+            "required": ["finding", "evidence"],
+            "additionalProperties": False,
+        },
+        "fn": tool_note,
+    },
+]
+
+TOOL_MAP = {t["name"]: t for t in TOOLS}
+
+
+# ---------------------------------------------------------------------------
+# JSON-RPC dispatch
+# ---------------------------------------------------------------------------
+
+
+def rpc_error(msg_id, code: int, message: str) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "id": msg_id,
+        "error": {"code": code, "message": message},
+    }
+
+
+def rpc_result(msg_id, result) -> dict:
+    return {"jsonrpc": "2.0", "id": msg_id, "result": result}
+
+
+def handle(msg: dict) -> dict | None:
+    # Return None for notifications (no response must be sent).
+    msg_id = msg.get("id")
+    method = msg.get("method")
+    params = msg.get("params") or {}
+
+    if method == "initialize":
+        client_ver = None
+        if isinstance(params, dict):
+            client_ver = params.get("protocolVersion")
+        return rpc_result(
+            msg_id,
+            {
+                "protocolVersion": client_ver or PROTOCOL_VERSION_DEFAULT,
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+            },
+        )
+
+    if method == "notifications/initialized":
+        return None
+
+    if method == "tools/list":
+        return rpc_result(
+            msg_id,
+            {
+                "tools": [
+                    {
+                        "name": t["name"],
+                        "description": t["description"],
+                        "inputSchema": t["inputSchema"],
+                    }
+                    for t in TOOLS
+                ]
+            },
+        )
+
+    if method == "tools/call":
+        name = params.get("name")
+        args = params.get("arguments") or {}
+        tool = TOOL_MAP.get(name)
+        if tool is None:
+            return rpc_result(
+                msg_id,
+                {
+                    "content": [
+                        {"type": "text", "text": json.dumps({"error": f"unknown tool {name!r}"})}
+                    ],
+                    "isError": True,
+                },
+            )
+        try:
+            conn = db_connect()
+            try:
+                payload = tool["fn"](conn, args)
+            finally:
+                conn.close()
+            return rpc_result(
+                msg_id,
+                {
+                    "content": [
+                        {"type": "text", "text": json.dumps(payload, ensure_ascii=False)}
+                    ]
+                },
+            )
+        except ToolError as e:
+            return rpc_result(
+                msg_id,
+                {
+                    "content": [{"type": "text", "text": json.dumps({"error": str(e)})}],
+                    "isError": True,
+                },
+            )
+        except Exception as e:  # never let a tool crash the protocol stream
+            log(f"tool {name} crashed: {e!r}")
+            return rpc_result(
+                msg_id,
+                {
+                    "content": [
+                        {"type": "text", "text": json.dumps({"error": f"internal error: {e}"})}
+                    ],
+                    "isError": True,
+                },
+            )
+
+    return rpc_error(msg_id, -32601, f"method not found: {method}")
+
+
+def main() -> None:
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+            if not isinstance(msg, dict):
+                raise ValueError("not a JSON object")
+        except (json.JSONDecodeError, ValueError) as e:
+            resp = rpc_error(None, -32700, f"parse error: {e}")
+        else:
+            if "id" not in msg:
+                # Notification: no response, by definition.
+                handle(msg)
+                continue
+            try:
+                resp = handle(msg)
+            except Exception as e:
+                log(f"dispatch crashed: {e!r}")
+                resp = rpc_error(msg.get("id"), -32603, f"internal error: {e}")
+            if resp is None:
+                continue
+        sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    main()

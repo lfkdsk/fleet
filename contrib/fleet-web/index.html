@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fleet top</title>
+<link rel="stylesheet" href="/style.css"></head><body><div class="wrap">
+<header>
+ <h1>fleet top</h1>
+ <span id="daemon" class="pill">…</span>
+ <span class="stat">running <b id="nrun">–</b>/<b id="npar">–</b></span>
+ <span class="stat">queued <b id="nq">–</b></span>
+ <span class="stat">needs you <b id="nneed">–</b></span>
+ <a class="stat" href="/goals">全部 goal</a>
+ <span id="age" class="stat">loading…</span>
+ <span class="who" id="who"></span>
+</header>
+<main>
+ <div>
+  <section><h2>在跑 / 排队</h2><div id="live"><div class="empty">加载中…</div></div></section>
+  <section><h2>最近结束</h2><div class="tbl"><table id="recent"><thead><tr><th>ID</th><th>状态</th><th>渠道/模型</th><th>耗时</th><th>结束</th><th>标题</th></tr></thead><tbody></tbody></table></div></section>
+ </div>
+ <div>
+  <section><h2>近 48 小时的 goal · <a href="/goals">全部历史</a></h2><div id="goals"></div></section>
+  <section><h2>等你拍板</h2><div id="need"></div></section>
+  <section><h2>自主推进的 goal</h2><div id="auto"></div></section>
+  <section><h2>近 24 小时渠道</h2><div id="chan"></div>
+   <div class="stat" style="margin-top:6px;font-size:11px"><span style="color:var(--done)">■</span> done <span style="color:var(--fail)">■</span> failed <span style="color:var(--mut)">■</span> cancelled <span style="color:var(--run)">■</span> 在跑/排队</div></section>
+ </div>
+</main>
+<footer>只读；每 5 秒刷新；点 goal 编号进单页。数据来自 <code>fleet top --once --json</code>与 ~/.fleet/fleet.db。</footer>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dur = s => s == null ? "–" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s/60) + "m" : s < 172800 ? (s/3600).toFixed(1) + "h" : Math.floor(s/86400) + "d";
+const ago = (t, now) => t ? dur(Math.max(0, now - t)) + "前" : "–";
+let last = 0;
+
+function render(d) {
+  const now = d.served_at || Math.floor(Date.now()/1000), x = d.extras || {}, goals = x.goals || {};
+  const dm = d.daemon || {};
+  $("daemon").textContent = dm.running ? (dm.stalled_s ? "daemon 卡住 " + dur(dm.stalled_s) : "daemon " + dm.pid) : "daemon 未运行";
+  $("daemon").className = "pill " + (dm.running && !dm.stalled_s ? "ok" : "bad");
+  const c = d.counts || {};
+  $("nrun").textContent = c.running ?? "–"; $("npar").textContent = c.max_parallel ?? "–"; $("nq").textContent = c.queued ?? "–";
+  $("nneed").textContent = (x.needs_user || []).length;
+
+  const byGoal = new Map();
+  for (const t of d.tasks || []) { const k = t.goal_id ?? "—"; if (!byGoal.has(k)) byGoal.set(k, []); byGoal.get(k).push(t); }
+  $("live").innerHTML = byGoal.size ? [...byGoal].map(([g, ts]) =>
+    `<div class="goal"><a href="/goal/${g === "—" ? "none" : esc(g)}"><span>${g === "—" ? "无 GOAL" : "GOAL " + esc(g)}</span>${esc(goals[g] || "")}</a></div><div class="tbl"><table><thead><tr><th>ID</th><th>状态</th><th>渠道/模型</th><th>运行</th><th>空闲</th><th>标题</th></tr></thead><tbody>` +
+    ts.map(t => `<tr><td><a href="/task/${t.id}">${t.id}</a></td><td class="s-${esc(t.status)}">${esc(t.status)}${t.dep_failed ? " ⚠dep" : ""}</td><td>${esc(t.channel)}/${esc(t.model || t.family || "-")}</td><td>${dur(t.took_s)}</td><td class="${t.stalled ? "stalled" : ""}">${dur(t.idle_s)}</td><td class="t">${esc(t.title)}${t.doing ? `<div class="doing">${esc(t.doing)}</div>` : ""}</td></tr>`).join("") +
+    `</tbody></table></div>`).join("") : `<div class="empty">没有在跑或排队的任务</div>`;
+
+  $("recent").tBodies[0].innerHTML = (x.recent || []).map(t =>
+    `<tr><td><a href="/task/${t.id}">${t.id}</a></td><td class="s-${esc(t.status)}">${esc(t.status)}${t.verdict ? " · " + esc(t.verdict) : ""}</td><td>${esc(t.channel)}/${esc(t.model || "-")}</td><td>${dur(t.ended_at && t.started_at ? t.ended_at - t.started_at : null)}</td><td>${ago(t.ended_at, now)}</td><td class="t">${t.goal_id ? `<a class="stat" href="/goal/${t.goal_id}">G${t.goal_id}</a> ` : ""}${esc(t.title)}</td></tr>`).join("");
+
+  $("goals").innerHTML = (x.active_goals || []).map(g => `<div class="dec"><a href="/goal/${g.id}"><b>G${g.id}</b></a> ${esc((g.statement || "").slice(0, 70))}<br><span class="stat">${g.live ? `<span class="ok">在跑/排队 ${g.live}</span> · ` : ""}任务 ${g.total} · ${g.total ? "最近活动 " + ago(g.last_at, now) : "新建 " + ago(g.created_at, now) + "，还没有任务"}</span></div>`).join("") || `<div class="empty">没有</div>`;
+  $("need").innerHTML = (x.needs_user || []).map(n => `<div class="dec"><b>#${n.id}</b> ${n.goal_id != null ? `<a class="stat" href="/goal/${esc(n.goal_id)}">G${esc(n.goal_id)}</a>` : ""}<span class="stat"> · ${ago(n.ts, now)}</span><br>${esc(n.question)}</div>`).join("") || `<div class="empty">没有</div>`;
+
+  $("auto").innerHTML = (x.autonomy || []).map(a => `<div class="dec"><a href="/goal/${a.goal_id}"><b>G${a.goal_id}</b></a> ${esc((a.statement || "").slice(0, 60))}<br><span class="stat">${esc(a.channel)}${a.model ? "/" + esc(a.model) : ""} · 回合 ${a.rounds_used}/${a.max_rounds} · ${esc(a.reason || "")} · ${ago(a.finished_at, now)}</span></div>`).join("") || `<div class="empty">没有</div>`;
+
+
+  const rows = x.last24h || [], mx = Math.max(1, ...rows.map(r => r.total));
+  $("chan").innerHTML = rows.map(r => { const w = v => (100 * (v || 0) / mx) + "%";
+    return `<div class="bar"><span class="lbl">${esc(r.channel)}</span><div class="track" title="${esc(r.channel)}"><i style="width:${w(r.done)};background:var(--done)"></i><i style="width:${w(r.failed)};background:var(--fail)"></i><i style="width:${w(r.cancelled)};background:var(--mut)"></i><i style="width:${w(r.live)};background:var(--run)"></i></div><span class="n">${r.total}</span></div>`; }).join("") || `<div class="empty">近 24 小时没有任务</div>`;
+}
+
+async function tick() {
+  try {
+    const r = await fetch("/api/top", {cache: "no-store"});
+    if (r.status === 401) { location.reload(); return; }
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json()); last = Date.now();
+  } catch (e) { $("age").textContent = "刷新失败：" + e.message; $("age").className = "stat bad"; }
+}
+setInterval(() => { if (last) { $("age").textContent = "更新于 " + Math.round((Date.now() - last)/1000) + " 秒前"; $("age").className = "stat"; } }, 1000);
+tick(); setInterval(tick, 5000);
+fetch("/api/me").then(r => r.json()).then(m => { $("who").innerHTML = esc(m.login) + '<button id="out">退出</button>';
+  $("out").onclick = () => fetch("/auth/logout", {method: "POST"}).then(() => location.reload()); }).catch(() => {});
+</script>
+</body></html>

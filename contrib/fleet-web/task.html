@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fleet task</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+.title{font-size:15px;font-weight:600;overflow-wrap:anywhere;margin:0 0 8px}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--line);margin:14px 0 0}
+.tabs button{font:13px var(--sans);background:none;color:var(--mut);border:0;border-bottom:2px solid transparent;padding:6px 10px;cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--fg);font-weight:600}
+.tabs .n{font:11px var(--mono);margin-left:4px}
+.pane{margin-top:10px}
+pre.txt{margin:0;font:12px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;max-height:none}
+.flow-stats{font:12px var(--mono);color:var(--mut);margin-bottom:8px;overflow-wrap:anywhere}
+.flow-stats b{color:var(--fg)}
+.flow-tools{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-bottom:8px}
+.flow-tools .filters{margin:0}
+.flow-tools label{font:12px var(--mono);color:var(--mut);display:flex;gap:4px;align-items:center;cursor:pointer}
+.flow-tools button.act{font:12px var(--mono);background:none;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer}
+.st{border-left:3px solid var(--line);padding:4px 0 4px 10px;margin:0}
+.st+.st{border-top:1px solid var(--line)}
+.st>summary,.st .row{display:grid;grid-template-columns:2.6em 3.6em minmax(0,1fr) auto;gap:8px;align-items:baseline}
+.st>summary{list-style:none;cursor:pointer}
+.st>summary::-webkit-details-marker{display:none}
+.st .i{font:11px var(--mono);color:var(--mut);text-align:right}
+.st .k{font:11px var(--mono);color:var(--mut)}
+.st .h{font:12px var(--mono);overflow-wrap:anywhere;white-space:pre-wrap}
+.st .m{font:11px var(--mono);color:var(--mut);white-space:nowrap}
+.st .m .bad{color:var(--fail);font-weight:600}
+.st .b{margin:6px 0 4px 0}
+.st .note{font:11px var(--mono);color:var(--mut);margin-top:4px}
+.st.k-exec{border-left-color:var(--done)}.st.k-tool{border-left-color:var(--queue)}.st.k-patch{border-left-color:var(--run)}
+.st.k-say,.st.k-result{border-left-color:var(--fg)}.st.k-think{border-left-color:var(--line)}.st.k-user,.st.k-compact{border-left-color:var(--mut)}
+.st.fail{border-left-color:var(--fail)}
+.prose{font:13px/1.55 var(--sans);white-space:pre-wrap;overflow-wrap:anywhere;margin:2px 0 0}
+.st.k-think .prose{color:var(--mut);font-style:italic}
+.st.k-result .prose{font-weight:500}
+.ev td.p{font-family:var(--mono);overflow-wrap:anywhere;white-space:pre-wrap;min-width:200px}
+.claim{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.claim:last-child{border:0}
+.claim .ev{font:12px var(--mono);color:var(--mut);white-space:pre-wrap;margin-top:4px}
+.att{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+.links a{margin-right:8px}
+.clamp{overflow:hidden}.clamp:not(.open){max-height:var(--clamp,7.8em);-webkit-mask-image:linear-gradient(#000 65%,transparent);mask-image:linear-gradient(#000 65%,transparent)}
+.prose.clamp{--clamp:7.8em}pre.txt.clamp{--clamp:30em}.ev .clamp{--clamp:4.6em}.claim .clamp{--clamp:6em}
+button.more{font:11px var(--mono);color:var(--mut);background:none;border:1px solid var(--line);border-radius:999px;padding:1px 9px;margin:4px 0 2px;cursor:pointer}
+.st .h{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+details.code{margin:6px 0;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+details.code>summary{cursor:pointer;font:11px var(--mono);color:var(--mut);padding:3px 8px}
+details.code pre{margin:0;padding:6px 10px;font:12px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;border-top:1px solid var(--line)}
+pre.cmd{margin:0 0 6px;font:12px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fg)}
+@media (max-width:640px){.st>summary,.st .row{grid-template-columns:2.2em minmax(0,1fr) auto}.st .k{display:none}}
+</style>
+</head><body><div class="wrap">
+<header>
+ <h1><a href="/">fleet top</a> / <a href="/goals">goals</a> / <span id="crumb"></span><span id="tid">task</span></h1>
+ <span id="tstatus" class="pill">…</span>
+ <span class="stat" id="chan"></span>
+ <span id="age" class="stat">loading…</span>
+</header>
+<section style="margin-top:14px">
+ <div class="title" id="ttitle"></div>
+ <dl class="kv" id="meta"></dl>
+ <div class="att" id="atts"></div>
+</section>
+<div class="tabs" role="tablist" id="tabs"></div>
+<section class="pane" id="pane"></section>
+<footer>只读。进行中的任务每 5 秒刷新。流程来自 <code>fleet trace</code>：codex 读 log.txt，Claude 系渠道读它们自己的会话记录；任务结束时 fleet 会把会话记录拷进 runs/&lt;id&gt;/attempt-N/ 存档。</footer>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dur = s => s == null ? "–" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s/60) + "m" : s < 172800 ? (s/3600).toFixed(1) + "h" : Math.floor(s/86400) + "d";
+const when = t => t ? new Date(t * 1000).toLocaleString("zh-CN", {hour12: false}) : "–";
+const hms = ts => { if (!ts) return ""; const d = new Date(ts); return isNaN(d) ? "" : d.toLocaleTimeString("zh-CN", {hour12: false}); };
+const kb = n => n == null ? "–" : n < 1024 ? n + " B" : n < 1048576 ? (n/1024).toFixed(1) + " KB" : (n/1048576).toFixed(1) + " MB";
+const tid = location.pathname.split("/").pop();
+const KIND = {user: "提示", say: "发言", think: "思考", exec: "命令", tool: "工具", patch: "改文件", compact: "压缩", result: "结果"};
+const TABS = [["flow", "流程"], ["prompt", "Prompt"], ["out", "输出"], ["claims", "结论与产物"], ["events", "事件"], ["log", "原始日志"]];
+let data = null, attempt = null, last = 0, tab = "flow", kindF = "all", onlyBad = false;
+const opened = new Set();
+{ const h = location.hash.slice(1); if (TABS.some(([k]) => k === h)) tab = h; }
+
+function bad(s) { return s.status && s.status !== "ok"; }
+
+function renderMeta(d) {
+  const t = d.task, now = d.served_at;
+  document.title = "T" + t.id + " · fleet";
+  $("tid").textContent = "T" + t.id;
+  $("crumb").innerHTML = t.goal_id ? `<a href="/goal/${t.goal_id}">G${t.goal_id}</a> / ` : `<a href="/goal/none">无 goal</a> / `;
+  $("tstatus").textContent = t.status + (t.verdict ? " · " + t.verdict : "");
+  $("tstatus").className = "pill " + ({done: "ok", running: "ok", failed: "bad", queued: "warn"}[t.status] || "warn");
+  $("chan").textContent = `${t.channel}/${t.resolved_model || t.model || t.family || "-"}${t.effort ? " · " + t.effort : ""}`;
+  $("ttitle").textContent = t.title;
+  const link = id => `<a href="/task/${id}">T${id}</a>`;
+  const deps = String(t.deps || "").replace(/[\[\]]/g, "").split(/[,\s]+/).map(x => x.split(":")[0]).filter(x => /^\d+$/.test(x));
+  const took = t.started_at ? (t.ended_at || now) - t.started_at : null;
+  const kv = [
+    ["goal", t.goal_id ? `<a href="/goal/${t.goal_id}">G${t.goal_id}</a> ${esc(d.goal || "")}` : null],
+    ["状态", `${esc(t.status)}${t.verdict ? " · 判定 " + esc(t.verdict) + (t.verdict_by ? "（" + esc(t.verdict_by) + "）" : "") : ""}${t.exit_code != null ? " · 退出码 " + t.exit_code : ""}`],
+    ["渠道 / 模型", `${esc(t.channel)} · ${esc(t.resolved_model || t.model || "-")}${t.resolved_agent ? " · " + esc(t.resolved_agent) : ""}${t.effort ? " · effort " + esc(t.effort) : ""}${t.role && t.role !== "worker" ? " · " + esc(t.role) : ""}`],
+    ["时间", `创建 ${when(t.created_at)} · 开始 ${when(t.started_at)} · 结束 ${when(t.ended_at)} · 用时 ${dur(took)}${t.timeout_s ? " · 超时上限 " + dur(t.timeout_s) : ""}`],
+    ["尝试", `${t.attempt || 0} / ${t.max_attempts}`],
+    ["工作目录", esc(t.worktree || t.cwd) + (t.worktree_branch ? ` · 分支 ${esc(t.worktree_branch)}` : "") + (t.base_commit ? ` · 基于 ${esc(String(t.base_commit).slice(0, 10))}` : "")],
+    ["依赖", deps.length ? deps.map(link).join(" ") : null],
+    ["审查对象", t.review_of ? link(t.review_of) + (t.lens ? " · " + esc(t.lens) : "") : null],
+    ["上游", [t.parent_id && "派生自 " + link(t.parent_id), t.base_task && "续做 " + link(t.base_task)].filter(Boolean).join(" · ") || null],
+    ["审查它的任务", d.reviews.length ? d.reviews.map(r => `${link(r.id)} <span class="s-${esc(r.status)}">${esc(r.status)}${r.verdict ? " · " + esc(r.verdict) : ""}</span>`).join(" · ") : null],
+    ["派生 / 续做", d.children.length ? d.children.map(r => `${link(r.id)} <span class="s-${esc(r.status)}">${esc(r.status)}</span>`).join(" · ") : null],
+  ].filter(([, v]) => v);
+  $("meta").innerHTML = kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd style="white-space:normal">${v}</dd>`).join("");
+  $("atts").innerHTML = d.attempts.length > 1 ? `<span class="stat">尝试</span><div class="filters" style="margin:0">` +
+    d.attempts.map(a => `<button data-a="${a.n}" aria-pressed="${a.n === d.attempt}">#${a.n}</button>`).join("") + `</div>` : "";
+  $("atts").querySelectorAll("button").forEach(b => b.onclick = () => { attempt = +b.dataset.a; opened.clear(); tick(); });
+}
+
+function renderTabs(d) {
+  const tr = d.trace, n = {flow: tr ? tr.steps.length : 0, claims: d.claims.length + d.artifacts.length, events: d.events.length};
+  $("tabs").innerHTML = TABS.map(([k, l]) => `<button role="tab" data-t="${k}" aria-selected="${k === tab}">${l}${n[k] ? `<span class="n">${n[k]}</span>` : ""}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.t; try { history.replaceState(null, "", "#" + tab); } catch (e) {} renderTabs(data); renderPane(); });
+}
+
+// Code inside prose folds into its own block; long text shows a few lines
+// and a toggle (applyClamps adds it only where the text actually overflows).
+function proseHTML(text) {
+  return text.split(/(```[^\n]*\n[\s\S]*?(?:```|$))/).map(seg => {
+    const m = seg.match(/^```([^\n]*)\n([\s\S]*?)(?:```)?$/);
+    if (!m) return esc(seg);
+    const code = m[2].replace(/\n$/, ""), n = code.split("\n").length;
+    return `<details class="code"><summary>代码${m[1] ? " · " + esc(m[1]) : ""} · ${n} 行</summary><pre>${esc(code)}</pre></details>`;
+  }).join("");
+}
+function applyClamps(root) {
+  root.querySelectorAll(".clamp").forEach(el => {
+    if (el.dataset.c) return;
+    el.dataset.c = "1";
+    if (el.scrollHeight <= el.clientHeight + 4) { el.classList.add("open"); return; }
+    const b = document.createElement("button");
+    b.className = "more"; b.textContent = "展开全文";
+    b.onclick = () => { const o = el.classList.toggle("open"); b.textContent = o ? "收起" : "展开全文"; };
+    el.after(b);
+  });
+}
+
+function stepHTML(s, i) {
+  const fail = bad(s), prose = ["say", "result", "think"].includes(s.k);
+  const head = s.title || (s.body || "").trim().split("\n")[0] || "";
+  const meta = `${fail ? `<span class="bad">${esc(s.status)}</span> ` : ""}${hms(s.ts)}`;
+  if (prose && s.k !== "think") {
+    return `<div class="st k-${s.k}${fail ? " fail" : ""}" data-i="${i}"><div class="row"><span class="i">${i + 1}</span><span class="k">${KIND[s.k]}</span><div><div class="prose clamp">${proseHTML(s.body)}</div></div><span class="m">${meta}</span></div>${s.cut ? `<div class="note">截掉 ${kb(s.cut)}，全文见原始日志</div>` : ""}</div>`;
+  }
+  const isOpen = opened.has(i);
+  return `<details class="st k-${s.k}${fail ? " fail" : ""}" data-i="${i}"${isOpen ? " open" : ""}><summary><span class="i">${i + 1}</span><span class="k">${KIND[s.k] || esc(s.k)}</span><span class="h" title="${esc(head.slice(0, 2000))}">${esc(head)}</span><span class="m">${meta}</span></summary><div class="b">${isOpen ? bodyHTML(s) : ""}</div></details>`;
+}
+function bodyHTML(s) {
+  // the header shows two lines of a long command; the body repeats it whole
+  const cmd = s.k === "exec" && s.title && s.title.length > 110 && !(s.body || "").startsWith("$ ") ? `<pre class="cmd">$ ${esc(s.title)}</pre>` : "";
+  if (!s.body) return cmd + `<div class="note">（没有输出）</div>`;
+  return cmd + (s.k === "think" ? `<div class="prose clamp">${proseHTML(s.body)}</div>` : `<pre class="txt clamp">${esc(s.body)}</pre>`) + (s.cut ? `<div class="note">截掉 ${kb(s.cut)}，全文见原始日志</div>` : "");
+}
+
+function renderFlow() {
+  const d = data, tr = d.trace, p = $("pane");
+  if (!tr) {
+    p.innerHTML = `<div class="empty">还没有流程记录${d.trace_error ? "：" + esc(d.trace_error) : ""}。可以看「原始日志」。</div>`;
+    return;
+  }
+  const c = {}; let nbad = 0;
+  for (const s of tr.steps) { c[s.k] = (c[s.k] || 0) + 1; if (bad(s)) nbad++; }
+  const execBad = tr.steps.filter(s => s.k === "exec" && bad(s)).length;
+  const h = tr.header || {};
+  p.innerHTML = `<div class="flow-stats"><b>${tr.steps.length}</b> 步 · 命令 <b>${c.exec || 0}</b>${execBad ? `（失败 <span class="bad">${execBad}</span>）` : ""} · 工具 <b>${c.tool || 0}</b> · 改文件 <b>${c.patch || 0}</b> · 发言 <b>${(c.say || 0) + (c.result || 0)}</b>${c.think ? ` · 思考 <b>${c.think}</b>` : ""}${c.compact ? ` · 上下文压缩 <b>${c.compact}</b>` : ""}${tr.tokens ? ` · tokens <b>${Number(tr.tokens).toLocaleString()}</b>` : ""} · 来源 ${tr.source === "claude" ? "会话记录" : "log.txt"}${h.cli ? " · " + esc(h.cli) : ""}${h.model ? " · " + esc(h.model) : ""}${tr.kept && tr.kept.length ? " · 已存档 " + tr.kept.map(esc).join("、") : ""}</div>
+  <div class="flow-tools"><div class="filters" id="kf"></div><label><input type="checkbox" id="ob"${onlyBad ? " checked" : ""}> 只看失败（${nbad}）</label><button class="act" id="ex">全部展开</button><button class="act" id="co">全部收起</button></div>
+  <div id="steps"></div>`;
+  const ks = [["all", "全部"], ["exec", "命令"], ["tool", "工具"], ["patch", "改文件"], ["say", "发言"], ["think", "思考"]].filter(([k]) => k === "all" || c[k] || (k === "say" && c.result));
+  $("kf").innerHTML = ks.map(([k, l]) => `<button data-k="${k}" aria-pressed="${k === kindF}">${l}</button>`).join("");
+  $("kf").querySelectorAll("button").forEach(b => b.onclick = () => { kindF = b.dataset.k; renderFlow(); });
+  $("ob").onchange = e => { onlyBad = e.target.checked; renderFlow(); };
+  const vis = tr.steps.map((s, i) => [s, i]).filter(([s]) => (kindF === "all" || s.k === kindF || (kindF === "say" && s.k === "result")) && (!onlyBad || bad(s)));
+  $("steps").innerHTML = vis.map(([s, i]) => stepHTML(s, i)).join("") || `<div class="empty">没有符合条件的步骤</div>`;
+  $("steps").querySelectorAll("details.st").forEach(el => el.addEventListener("toggle", () => {
+    const i = +el.dataset.i;
+    if (el.open) { opened.add(i); const b = el.querySelector(".b"); if (!b.innerHTML) b.innerHTML = bodyHTML(tr.steps[i]); applyClamps(b); } else opened.delete(i);
+  }));
+  applyClamps($("steps"));
+  $("steps").querySelectorAll("details.st[open] .b").forEach(b => { if (!b.innerHTML) b.innerHTML = bodyHTML(tr.steps[+b.parentNode.dataset.i]); applyClamps(b); });
+  $("ex").onclick = () => $("steps").querySelectorAll("details.st").forEach(el => el.open = true);
+  $("co").onclick = () => $("steps").querySelectorAll("details.st").forEach(el => el.open = false);
+}
+
+function renderPane() {
+  const d = data, p = $("pane");
+  if (tab === "flow") return renderFlow();
+  if (tab === "prompt") {
+    p.innerHTML = d.prompt == null ? `<div class="empty">没有 prompt 文件</div>` : `<div class="stat" style="margin-bottom:6px">${kb(d.prompt_bytes)}${d.prompt_bytes > 262144 ? "，只显示前 256 KB" : ""}</div><pre class="txt clamp">${esc(d.prompt)}</pre>`;
+  } else if (tab === "out") {
+    p.innerHTML = d.out == null || d.out === "" ? `<div class="empty">还没有输出</div>` : `<div class="stat" style="margin-bottom:6px">out.md · ${kb(d.out_bytes)}${d.out_bytes > 262144 ? "，只显示前 256 KB" : ""}</div><pre class="txt clamp">${esc(d.out)}</pre>`;
+  } else if (tab === "claims") {
+    const cl = d.claims.map(c => `<div class="claim"><span class="stat">#${c.id} · <span class="${c.status === "refuted" ? "bad" : c.status === "confirmed" ? "ok" : ""}">${esc(c.status)}</span>${c.resolution ? " · " + esc(c.resolution) : ""}</span><div>${esc(c.claim)}</div>${c.evidence ? `<div class="ev clamp">${esc(c.evidence)}</div>` : ""}</div>`).join("");
+    const ar = d.artifacts.map(a => `<div class="claim"><span class="stat">${esc(a.kind || "file")} · ${kb(a.bytes)}</span><div style="font-family:var(--mono);font-size:12px">${esc(a.path)}</div>${a.summary ? `<div>${esc(a.summary)}</div>` : ""}</div>`).join("");
+    p.innerHTML = `<h2>结论（claim）</h2>${cl || `<div class="empty">没有登记结论</div>`}<h2 style="margin-top:14px">产物（artifact）</h2>${ar || `<div class="empty">没有登记产物</div>`}`;
+  } else if (tab === "events") {
+    const b = d.blocked;
+    p.innerHTML = (b.n ? `<div class="stat" style="margin-bottom:6px">另有 ${b.n} 条 task.blocked（排队等依赖/名额），${when(b.first)} 到 ${when(b.last)}，未列出</div>` : "")
+      + `<div class="tbl"><table class="ev"><thead><tr><th>时间</th><th>事件</th><th>内容</th></tr></thead><tbody>${d.events.map(e => `<tr><td style="white-space:nowrap">${when(e.ts)}</td><td>${esc(e.kind)}</td><td class="p"><div class="clamp">${esc(e.payload || "")}</div></td></tr>`).join("") || `<tr><td colspan="3" class="empty">没有事件</td></tr>`}</tbody></table></div>`;
+  }
+  if (tab !== "flow" && tab !== "log") applyClamps(p);
+  if (tab === "log") {
+    p.innerHTML = `<div class="flow-tools"><button class="act" id="lall">加载全部</button><span class="stat" id="lsz"></span></div><pre class="txt" id="logtxt">加载中…</pre>`;
+    loadLog(false);
+    $("lall").onclick = () => loadLog(true);
+  }
+}
+
+async function loadLog(all) {
+  const a = data.attempts.find(x => x.n === data.attempt);
+  $("lsz") && ($("lsz").textContent = a ? `log.txt · ${kb(a.log_bytes)}` : "");
+  try {
+    const r = await fetch(`/api/task/${tid}/log?attempt=${data.attempt || ""}${all ? "&all=1" : ""}`, {cache: "no-store"});
+    const t = await r.text();
+    if ($("logtxt")) $("logtxt").textContent = t || "（空）";
+  } catch (e) { if ($("logtxt")) $("logtxt").textContent = "加载失败：" + e.message; }
+}
+
+function render(d) {
+  const sameAttempt = data && data.attempt === d.attempt;
+  const prevSteps = sameAttempt && data.trace ? data.trace.steps.length : -1;
+  data = d; attempt = d.attempt;
+  renderMeta(d); renderTabs(d);
+  // a live refresh must not reset what the reader opened or scrolled to
+  if (tab === "flow" && prevSteps === (d.trace ? d.trace.steps.length : -1) && $("steps")) return;
+  if (tab === "log" && $("logtxt") && prevSteps !== -1) return;
+  renderPane();
+}
+
+let timer = null;
+async function tick() {
+  try {
+    const r = await fetch(`/api/task/${tid}${attempt ? "?attempt=" + attempt : ""}`, {cache: "no-store"});
+    if (r.status === 401) { location.reload(); return; }
+    if (r.status === 404) { $("ttitle").textContent = "没有这个任务"; return; }
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json(); render(d); last = Date.now();
+    clearTimeout(timer);
+    if (["running", "queued"].includes(d.task.status)) timer = setTimeout(tick, 5000);
+  } catch (e) { $("age").textContent = "刷新失败：" + e.message; $("age").className = "stat bad"; }
+}
+setInterval(() => { if (last) { $("age").textContent = "更新于 " + Math.round((Date.now() - last)/1000) + " 秒前"; $("age").className = "stat"; } }, 1000);
+tick();
+</script>
+</body></html>

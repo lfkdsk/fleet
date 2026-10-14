@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fleet goal</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+.tl{position:relative;width:100%;overflow-x:auto}
+.tl svg{display:block;font:11px var(--mono)}
+.tl .lane-lbl{fill:var(--fg);font:600 11px var(--mono)}
+.tl .lane-sub{fill:var(--mut);font:10px var(--mono)}
+.tl .grid{stroke:var(--line);stroke-width:1}
+.tl .axis{fill:var(--mut);font:10px var(--mono)}
+.tl .now{stroke:var(--fg);stroke-width:1;stroke-dasharray:2 3;opacity:.6}
+.tl .bar{cursor:pointer}
+.tl .bar text{fill:#fff;font:600 10px var(--mono);pointer-events:none}
+.tl .edge{fill:none;stroke:var(--mut);stroke-width:1.5;opacity:.55}
+.tl .edge.k-review{stroke-dasharray:5 3}
+.tl .edge.k-dep{stroke-dasharray:1.5 3}
+.tl .edge.hot{stroke:var(--fg);opacity:1;stroke-width:2}
+.tl .bar.dim{opacity:.25}
+.tl-legend{display:flex;flex-wrap:wrap;gap:4px 14px;margin:6px 0 8px;font-size:11px;color:var(--mut)}
+.tl-legend i{display:inline-block;width:12px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+.tl-legend svg{vertical-align:-2px;margin-right:4px}
+.tl-tip{position:fixed;z-index:10;max-width:420px;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.5;box-shadow:0 4px 16px rgba(0,0,0,.18);pointer-events:none;overflow-wrap:anywhere}
+.tl-tip .m{color:var(--mut)}
+#tl-sec{margin-top:14px}.fold>summary{cursor:pointer;list-style:none}.fold>summary::-webkit-details-marker{display:none}.fold>summary h2{display:inline-block;margin:0}.fold>summary::before{content:"▸ ";color:var(--mut)}.fold[open]>summary::before{content:"▾ "}.fold[open]>summary{margin-bottom:8px}
+@media (prefers-color-scheme:dark){.tl .bar text{fill:#121514}}
+</style>
+</head><body><div class="wrap">
+<header>
+ <h1><a href="/">fleet top</a> / <a href="/goals">goals</a> / <span id="gid">goal</span></h1>
+ <span id="gstatus" class="pill">…</span>
+ <span class="stat">任务 <b id="ntot">–</b></span>
+ <span class="stat">在跑/排队 <b id="nlive">–</b></span>
+ <span id="age" class="stat">loading…</span>
+</header>
+<main>
+ <div>
+  <section><h2>目标</h2><div id="statement" style="font-size:14px;font-weight:600;overflow-wrap:anywhere"></div><dl class="kv" id="meta" style="margin-top:10px"></dl></section>
+  <section><h2>任务</h2>
+   <div class="filters" id="filters"></div>
+   <div class="tbl"><table id="tasks"><thead><tr><th>ID</th><th>状态</th><th>渠道/模型</th><th>耗时</th><th>结束</th><th>标题</th></tr></thead><tbody></tbody></table></div>
+   <div class="stat" id="more" style="margin-top:6px"></div></section>
+ </div>
+ <div>
+  <section><h2>状态分布</h2><div id="bystatus"></div></section>
+  <section><h2>渠道</h2><div id="chan"></div>
+   <div class="stat" style="margin-top:6px;font-size:11px"><span style="color:var(--done)">■</span> done <span style="color:var(--fail)">■</span> failed <span style="color:var(--mut)">■</span> cancelled <span style="color:var(--run)">■</span> 在跑/排队</div></section>
+  <section><h2>决策</h2><div id="dec"></div></section>
+  <section><details id="plan-fold" class="fold"><summary><h2>计划（最新一版）</h2> <span id="plan-sum" class="stat"></span></summary><div id="plan" class="stat" style="white-space:pre-wrap;overflow-wrap:anywhere"></div></details></section>
+ </div>
+</main>
+<section id="tl-sec"><details id="tl-fold" class="fold"><summary><h2>分派时间线</h2></summary>
+ <div class="filters" id="tl-range"></div>
+ <div id="tl-legend" class="tl-legend"></div>
+ <div id="tl" class="tl"></div>
+ <div id="tl-tip" class="tl-tip" role="tooltip" hidden></div>
+</details></section>
+<footer>只读；每 10 秒刷新。</footer>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const dur = s => s == null ? "–" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s/60) + "m" : s < 172800 ? (s/3600).toFixed(1) + "h" : Math.floor(s/86400) + "d";
+const ago = (t, now) => t ? dur(Math.max(0, now - t)) + "前" : "–";
+const when = t => t ? new Date(t * 1000).toLocaleString("zh-CN", {hour12: false}) : "–";
+const gid = location.pathname.split("/").pop();
+let data = null, filter = "all", last = 0;
+
+function renderTasks() {
+  const now = data.served_at;
+  const ts = data.tasks.filter(t => filter === "all" || (filter === "live" ? ["running", "queued"].includes(t.status) : t.status === filter));
+  $("tasks").tBodies[0].innerHTML = ts.map(t => `<tr><td><a href="/task/${t.id}">${t.id}</a></td><td class="s-${esc(t.status)}">${esc(t.status)}${t.verdict ? " · " + esc(t.verdict) : ""}${t.status === "failed" && t.exit_code != null ? " (" + t.exit_code + ")" : ""}</td><td>${esc(t.channel)}/${esc(t.model || t.family || "-")}</td><td>${dur(t.started_at ? (t.ended_at || now) - t.started_at : null)}</td><td>${t.ended_at ? ago(t.ended_at, now) : "–"}</td><td class="t">${t.review_of ? `<span class="stat">审 ${t.review_of}</span> ` : ""}${esc(t.title)}</td></tr>`).join("") || `<tr><td colspan="6" class="empty">没有</td></tr>`;
+  $("more").textContent = data.task_total > data.tasks.length ? `只列最近 ${data.tasks.length} 个，共 ${data.task_total} 个` : "";
+}
+
+function render(d) {
+  data = d; const g = d.goal, now = d.served_at, a = g.autonomy;
+  document.title = (g.id == null ? "无 goal" : "G" + g.id) + " · fleet";
+  $("gid").textContent = g.id == null ? "无 GOAL" : "GOAL " + g.id;
+  $("gstatus").textContent = g.status; $("gstatus").className = "pill " + (g.status === "open" ? "ok" : "warn");
+  $("ntot").textContent = d.task_total;
+  const live = d.tasks.filter(t => ["running", "queued"].includes(t.status)).length; $("nlive").textContent = live;
+  $("statement").textContent = g.statement;
+  const kv = [["创建", when(g.created_at)], ["验收", g.acceptance], ["上下文", g.context],
+    ["自主推进", a ? `${a.enabled ? "开" : "关"} · ${a.channel || ""}${a.model ? "/" + a.model : ""} · 回合 ${a.rounds_used ?? 0}/${a.max_rounds ?? "-"}${a.last_reason ? " · " + a.last_reason : ""}` : null],
+    ["工作目录", a && a.cwd], ["审批门", g.approval_gates && g.approval_gates !== "[]" ? g.approval_gates : null],
+    ["claim", d.claims.length ? d.claims.map(c => `${c.status || "?"} ${c.n}`).join(" · ") : null]].filter(([, v]) => v);
+  $("meta").innerHTML = kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+  const statuses = ["all", "live", ...d.by_status.map(s => s.status)];
+  $("filters").innerHTML = statuses.map(s => `<button data-f="${esc(s)}" aria-pressed="${s === filter}">${s === "all" ? "全部" : s === "live" ? "在跑/排队" : esc(s)}</button>`).join("");
+  $("filters").querySelectorAll("button").forEach(b => b.onclick = () => { filter = b.dataset.f; render(data); });
+  renderTasks();
+  renderTimeline();
+  $("bystatus").innerHTML = d.by_status.map(s => `<div class="bar"><span class="lbl s-${esc(s.status)}">${esc(s.status)}</span><div class="track"><i style="width:${100 * s.n / Math.max(1, d.task_total)}%;background:var(--done)"></i></div><span class="n">${s.n}</span></div>`).join("") || `<div class="empty">还没有任务</div>`;
+  const mx = Math.max(1, ...d.by_channel.map(r => r.total));
+  $("chan").innerHTML = d.by_channel.map(r => { const w = v => (100 * (v || 0) / mx) + "%";
+    return `<div class="bar"><span class="lbl">${esc(r.channel)}</span><div class="track"><i style="width:${w(r.done)};background:var(--done)"></i><i style="width:${w(r.failed)};background:var(--fail)"></i><i style="width:${w(r.cancelled)};background:var(--mut)"></i><i style="width:${w(r.live)};background:var(--run)"></i></div><span class="n">${r.total}</span></div>`; }).join("") || `<div class="empty">还没有任务</div>`;
+  $("dec").innerHTML = d.decisions.map(x => `<div class="dec"><b>#${x.id}</b> <span class="stat">${x.needs_user && !x.resolved_at ? '<span class="bad">等你拍板</span> · ' : x.resolved_at ? "已处理 · " : ""}${ago(x.ts, now)}</span><br>${esc(x.question)}${x.verdict ? `<div class="stat">→ ${esc(x.verdict)}</div>` : ""}</div>`).join("") || `<div class="empty">没有</div>`;
+  $("plan-sum").textContent = d.plan ? `r${d.plan.revision} · ${when(d.plan.created_at)}` : "没有计划";
+  $("plan").textContent = d.plan ? (d.plan.rationale || "（无说明）") : "没有计划";
+}
+
+// ---------------------------------------------------------------- timeline
+const TL = {range: -1, hot: null};
+const RANGES = [[-1, "自动"], [6 * 3600, "6 小时"], [24 * 3600, "24 小时"], [3 * 86400, "3 天"], [0, "全部"]];
+const ST = t => t.status === "done" && t.out_bytes === 0 ? ["var(--stall)", "空结束"]
+  : t.status === "done" ? ["var(--done)", "done"] : t.status === "failed" ? ["var(--fail)", "failed"]
+  : t.status === "running" ? ["var(--run)", "running"] : t.status === "queued" ? ["var(--queue)", "queued"]
+  : ["var(--mut)", t.status];
+const EDGE = {cont: "续做（同一工作区）", review: "审查", dep: "依赖", parent: "派生"};
+
+function tlLegend() {
+  const st = [["var(--run)", "running"], ["var(--queue)", "queued（空心）"], ["var(--done)", "done"], ["var(--stall)", "空结束"], ["var(--fail)", "failed"], ["var(--mut)", "cancelled"]];
+  const ed = [["cont", ""], ["review", "5 3"], ["dep", "1.5 3"]];
+  $("tl-legend").innerHTML = st.map(([c, l]) => `<span><i style="background:${c}${l.startsWith("queued") ? ";background:none;border:1.5px solid " + c : ""}"></i>${l}</span>`).join("")
+    + ed.map(([k, d]) => `<span><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="currentColor" stroke-width="1.5" stroke-dasharray="${d}"/></svg>${EDGE[k]}</span>`).join("");
+}
+
+function renderTimeline() {
+  // a 10 s refresh must not wipe the hover the reader is looking at: redraw on leave
+  if (TL.hot != null) { TL.pending = true; return; }
+  TL.pending = false;
+  const d = data, now = d.served_at, box = $("tl");
+  $("tl-range").innerHTML = RANGES.map(([v, l]) => `<button data-r="${v}" aria-pressed="${v === TL.range}">${l}</button>`).join("");
+  $("tl-range").querySelectorAll("button").forEach(b => b.onclick = () => { TL.range = +b.dataset.r; TL.hot = null; renderTimeline(); });
+  const span = t => [t.started_at || t.created_at, t.ended_at || now];
+  let ts = d.tasks.filter(t => t.created_at);
+  // 自动: fit the tasks that were alive in the last 3 days, padded 4%
+  const recent = ts.filter(t => span(t)[1] >= now - 3 * 86400);
+  const lo = Math.min(...(recent.length ? recent : ts).map(t => span(t)[0]));
+  const t0 = TL.range > 0 ? now - TL.range : TL.range === 0 ? Math.min(...ts.map(t => span(t)[0])) : lo - Math.max(300, (now - lo) * 0.04);
+  ts = ts.filter(t => span(t)[1] >= t0).sort((a, b) => span(a)[0] - span(b)[0] || a.id - b.id);
+  if (!ts.length) { box.innerHTML = `<div class="empty">这段时间没有任务</div>`; return; }
+  const W = Math.max(640, box.clientWidth), LW = 168, R = 14, RH = 20, BH = 14, top = 22;
+  const x = t => LW + (Math.max(t, t0) - t0) / Math.max(1, now - t0) * (W - LW - R);
+  // lanes: one per channel, rows packed greedily so bars never overlap
+  const lanes = new Map();
+  for (const t of ts) {
+    if (!lanes.has(t.channel)) lanes.set(t.channel, {rows: [], models: new Set(), over: 0});
+    const L = lanes.get(t.channel), [a, b] = span(t);
+    if (t.model) L.models.add(t.model);
+    let r = L.rows.map(end => x(a) >= end + 3).indexOf(true);
+    if (r < 0 && L.rows.length < 8) { r = L.rows.length; L.rows.push(0); }
+    // lane is full: stack onto the row that frees up first, and say so on the label
+    else if (r < 0) { r = L.rows.indexOf(Math.min(...L.rows)); L.over++; }
+    L.rows[r] = Math.max(x(b), x(a) + 4); t._row = r; t._lane = L;
+  }
+  let y = top; const laneSvg = [];
+  for (const [ch, L] of lanes) {
+    L.y = y; const h = Math.max(L.over ? 3 : 1, L.rows.length) * RH + 10;
+    laneSvg.push(`<line class="grid" x1="0" x2="${W}" y1="${y + h - 4}" y2="${y + h - 4}"/>`
+      + `<text class="lane-lbl" x="4" y="${y + 13}">${esc(ch)}</text>`
+      + `<text class="lane-sub" x="4" y="${y + 26}">${esc([...L.models].join(" · "))}</text>`
+      + (L.over ? `<text class="lane-sub" x="4" y="${y + 39}">另有 ${L.over} 个与其他任务重叠</text>` : ""));
+    y += h;
+  }
+  const H = y + 4, pos = new Map();
+  // time axis: pick a tick step that gives 4–10 ticks
+  const steps = [600, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 2 * 86400, 7 * 86400];
+  const step = steps.find(s => (now - t0) / s <= 10) || steps[steps.length - 1];
+  const tz = new Date().getTimezoneOffset() * 60, ticks = [];
+  for (let t = Math.ceil((t0 - tz) / step) * step + tz; t <= now; t += step) ticks.push(t);
+  const fmt = t => new Date(t * 1000).toLocaleString("zh-CN", step >= 86400 ? {month: "numeric", day: "numeric"} : {hour: "2-digit", minute: "2-digit", hour12: false});
+  const axis = ticks.map(t => `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${top - 4}" y2="${H}"/><text class="axis" x="${x(t)}" y="12" text-anchor="middle">${fmt(t)}</text>`).join("");
+  const bars = ts.map(t => {
+    const [a, b] = span(t), x1 = x(a), x2 = Math.max(x(b), x1 + 4), by = t._lane.y + t._row * RH + 3, [c] = ST(t);
+    pos.set(t.id, {x1, x2, y: by + BH / 2});
+    const fill = t.status === "queued" ? `fill="none" stroke="${c}" stroke-width="1.5"` : `fill="${c}"`;
+    const lbl = x2 - x1 >= 42 ? `<text x="${x1 + 5}" y="${by + 10.5}">#${t.id}</text>` : "";
+    return `<g class="bar" data-id="${t.id}"><rect x="${x1 - 2}" y="${by - 2}" width="${x2 - x1 + 4}" height="${BH + 4}" fill="transparent"/><rect x="${x1}" y="${by}" width="${x2 - x1}" height="${BH}" rx="3" ${fill}/>${lbl}</g>`;
+  }).join("");
+  const edges = [];
+  for (const t of ts) {
+    const rel = [];
+    if (t.continues) rel.push([t.continues, "cont"]);
+    if (t.review_of) rel.push([t.review_of, "review"]);
+    for (const p of t.deps || []) if (p !== t.review_of) rel.push([p, "dep"]);
+    if (t.parent_id) rel.push([t.parent_id, "parent"]);
+    t._rel = rel;
+    for (const [src, k] of rel) {
+      const s = pos.get(src), e = pos.get(t.id); if (!s || !e) continue;
+      const mx = Math.max(24, Math.abs(e.x1 - s.x2) / 2);
+      edges.push(`<path class="edge k-${k}" data-a="${src}" data-b="${t.id}" d="M${s.x2},${s.y} C${s.x2 + mx},${s.y} ${e.x1 - mx},${e.y} ${e.x1},${e.y}"/>`);
+    }
+  }
+  box.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="任务分派时间线：按渠道分泳道，连线是续做、审查、依赖关系">${axis}${laneSvg.join("")}<g>${edges.join("")}</g>${bars}<line class="now" x1="${x(now)}" x2="${x(now)}" y1="${top - 4}" y2="${H}"/></svg>`;
+  const byId = new Map(d.tasks.map(t => [t.id, t])), tip = $("tl-tip");
+  const relText = t => {
+    const out = (t._rel || []).map(([s, k]) => `${EDGE[k]} ← #${s}`);
+    for (const o of ts) for (const [s, k] of o._rel || []) if (s === t.id) out.push(`${EDGE[k]} → #${o.id}`);
+    return out;
+  };
+  const place = (cx, cy) => { tip.style.left = Math.max(8, Math.min(cx + 14, innerWidth - tip.offsetWidth - 8)) + "px"; tip.style.top = Math.max(8, Math.min(cy + 14, innerHeight - tip.offsetHeight - 8)) + "px"; };
+  box.querySelectorAll(".bar").forEach(g => {
+    const id = +g.dataset.id, t = byId.get(id);
+    g.onmouseenter = () => {
+      TL.hot = id;
+      const linked = new Set([id]);
+      box.querySelectorAll(".edge").forEach(e => { const on = +e.dataset.a === id || +e.dataset.b === id; e.classList.toggle("hot", on); if (on) { linked.add(+e.dataset.a); linked.add(+e.dataset.b); } });
+      box.querySelectorAll(".bar").forEach(b => b.classList.toggle("dim", !linked.has(+b.dataset.id)));
+      const [, sl] = ST(t), [a, b] = span(t), rel = relText(t);
+      tip.innerHTML = `<b>#${t.id}</b> ${esc(t.title)}<div class="m">${esc(t.channel)} / ${esc(t.model || t.family || "-")}</div>`
+        + `<div>${esc(sl)}${t.verdict ? " · " + esc(t.verdict) : ""}${t.status === "failed" && t.exit_code != null ? " · exit " + t.exit_code : ""} · ${t.started_at ? "用时 " + dur(b - a) : "排队 " + dur(now - t.created_at)}</div>`
+        + `<div class="m">${when(t.started_at || t.created_at)} → ${t.ended_at ? when(t.ended_at) : "现在"}</div>`
+        + (rel.length ? `<div>${rel.map(esc).join("<br>")}</div>` : "");
+      tip.hidden = false;
+      const r = g.getBoundingClientRect(); place(r.right, r.top);
+    };
+    g.onmousemove = ev => place(ev.clientX, ev.clientY);
+    g.onclick = () => { location.href = "/task/" + id; };
+    g.onmouseleave = () => { TL.hot = null; tip.hidden = true; box.querySelectorAll(".hot,.dim").forEach(e => e.classList.remove("hot", "dim")); if (TL.pending) renderTimeline(); };
+  });
+}
+tlLegend();
+addEventListener("resize", () => data && renderTimeline());
+{ const f = $("plan-fold"); try { f.open = localStorage.getItem("planOpen") === "1"; } catch (e) {} f.addEventListener("toggle", () => { try { localStorage.setItem("planOpen", f.open ? "1" : "0"); } catch (e) {} }); }
+{ const f = $("tl-fold"); try { f.open = localStorage.getItem("tlOpen") === "1"; } catch (e) {} f.addEventListener("toggle", () => { try { localStorage.setItem("tlOpen", f.open ? "1" : "0"); } catch (e) {} if (f.open && data) renderTimeline(); }); }
+
+async function tick() {
+  try {
+    const r = await fetch("/api/goal/" + gid, {cache: "no-store"});
+    if (r.status === 401) { location.reload(); return; }
+    if (r.status === 404) { $("statement").textContent = "没有这个 goal"; return; }
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json()); last = Date.now();
+  } catch (e) { $("age").textContent = "刷新失败：" + e.message; $("age").className = "stat bad"; }
+}
+setInterval(() => { if (last) { $("age").textContent = "更新于 " + Math.round((Date.now() - last)/1000) + " 秒前"; $("age").className = "stat"; } }, 1000);
+tick(); setInterval(tick, 10000);
+</script>
+</body></html>

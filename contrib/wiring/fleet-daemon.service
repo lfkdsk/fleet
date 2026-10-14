@@ -1,0 +1,27 @@
+[Unit]
+Description=fleet daemon (poll loop; restarts itself after `fleet daemon stop` or a crash)
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.fleet
+Environment=FLEET_HOME=%h/.fleet
+# A user unit does not inherit the login shell's PATH; the daemon shells out to
+# the adapters and the CLIs they wrap (claude/node live under ~/.local).
+Environment=PATH=%h/.local/bin:%h/.local/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+# /usr/bin/env is argv[0] (a clean path); the checkout path is an argument.
+# systemd refuses special characters in the executable itself -- space/&/quote/%
+# in a checkout path are fine as a quoted argument, fatal as argv[0] -- and this
+# is the same form `fleet daemon start` uses when it re-execs (sys.executable).
+ExecStart=/usr/bin/env python3 @REPO@/bin/fleet daemon run --interval 2
+# Restart=always is the point of the unit: `fleet daemon stop` sends SIGTERM to
+# reload the running code, and 3s later systemd brings the poll loop back. A
+# crash or a machine reboot (with linger enabled) comes back the same way.
+Restart=always
+RestartSec=3
+# KillMode=process: SIGTERM must reach only the daemon. The in-flight task
+# wrappers are deliberately left to settle themselves via `fleet _finish`;
+# killing the cgroup would take running tasks down with the loop.
+KillMode=process
+
+[Install]
+WantedBy=default.target
