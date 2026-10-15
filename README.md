@@ -118,6 +118,8 @@ schema.sql      ledger schema and integrity triggers
 - [Guide](docs/guide.md): channels, probing, task options, goals, autonomy, observation, checks, and cleanup.
 - [Architecture](docs/architecture.md): process boundaries, task lifecycle, ledger design, isolation, and recovery.
 - [Adapters](docs/adapters.md): the adapter contract, built-in differences, API endpoints, and tests.
+- [Remote machines](docs/remote.md): SSH and Switchboard channels, remote jobs, callbacks, and file boundaries.
+- [Magpie gateway](docs/magpie.md): configure the local gateway, provider models, keys, probing, and model families.
 - [Contributing](CONTRIBUTING.md): development checks and repository guards.
 - [Optional integrations](contrib/README.md): local web view, notifications, usage estimates, and service wiring.
 

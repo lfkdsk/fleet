@@ -21,6 +21,8 @@
 
 仓库还带有通用的 `adapters/claude_api.sh`，但没有出厂渠道引用它。配置方式见[适配器文档](adapters.zh-CN.md#anthropic-兼容端点)。
 
+如何配置并打开默认关闭的出厂网关渠道，见[通过 Magpie 使用其他模型](magpie.zh-CN.md)。
+
 ### `channels.json` 字段
 
 顶层字段：
@@ -52,6 +54,8 @@
 | `prompt_extra` | 模型渠道在任务正文前插入的渠道专用文字。 |
 | `ssh_host` / `node` | 自定义远端渠道使用，分别选择 `ssh.sh` 主机或 `switchboard.sh` 节点。 |
 | `remote_cmd` | 远端适配器执行的命令。模型渠道必须实际读取注入的 `$FLEET_MODEL`；远端渠道不能担任 reviewer。 |
+
+SSH 与 Switchboard 的完整配置、节点可用性、回调、重试与远端文件系统限制，见[在其他机器上运行任务](remote.zh-CN.md)。
 
 适配器进程只继承白名单环境，以及 `FLEET_`、代理、locale 和少量运行时变量，不会顺手继承任意凭据。API 渠道通常要在 `env_passthrough` 中列出需要的凭据名。
 

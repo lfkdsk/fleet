@@ -118,6 +118,8 @@ schema.sql      ledger schema 与完整性 trigger
 - [使用指南](docs/guide.zh-CN.md)：渠道、探活、任务参数、goal、自治、状态查看、checks 与清理。
 - [架构](docs/architecture.zh-CN.md)：进程边界、任务生命周期、ledger、隔离与恢复。
 - [适配器](docs/adapters.zh-CN.md)：调用约定、内置适配器差异、API 端点与测试。
+- [远端机器](docs/remote.zh-CN.md)：SSH 与 Switchboard 渠道、远端 job、回调和文件边界。
+- [Magpie 网关](docs/magpie.zh-CN.md)：配置本机网关、provider 模型、key、探活与模型族。
 - [参与贡献](CONTRIBUTING.zh-CN.md)：开发检查与仓库守卫。
 - [可选集成](contrib/README.zh-CN.md)：本机网页、通知、用量估算与 service 接线。
 

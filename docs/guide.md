@@ -21,6 +21,8 @@ The factory registry has six channels:
 
 There is also a generic `adapters/claude_api.sh`, but no factory channel points to it. See [Adapters](adapters.md#anthropic-compatible-endpoints).
 
+To configure and enable the disabled factory gateway channel, see [Using other models through Magpie](magpie.md).
+
 ### `channels.json` fields
 
 At the top level:
@@ -52,6 +54,8 @@ Each channel may use these fields:
 | `prompt_extra` | Channel-specific text inserted before the task body for model-backed channels. |
 | `ssh_host` / `node` | Select the `ssh.sh` host or `switchboard.sh` node for a custom remote channel. |
 | `remote_cmd` | Command executed by a remote adapter. A model channel must consume the injected `$FLEET_MODEL`; remote channels cannot certify reviews. |
+
+For complete SSH and Switchboard configurations, node availability, callbacks, retries, and remote filesystem limits, see [Running tasks on another machine](remote.md).
 
 Fleet starts adapter environments from an allowlist, plus `FLEET_`, proxy, locale, and a few runtime variables. It does not copy arbitrary credentials. A typical API channel therefore declares its credential names in `env_passthrough`.
 
